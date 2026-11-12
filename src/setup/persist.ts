@@ -115,7 +115,7 @@ function editProfilePatch(
       }
     } catch (err) {
       log.warn(`写入验证失败，回滚 cordis.patch.yml: ${err instanceof Error ? err.message : String(err)}`);
-      const rollback = `${patchPath}.imqqbot.rollback`;
+      const rollback = `${patchPath}.akaneqqbot.rollback`;
       writeFileSync(rollback, before, 'utf8');
       renameSync(rollback, patchPath);
       return false;

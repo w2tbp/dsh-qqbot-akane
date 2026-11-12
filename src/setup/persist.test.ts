@@ -157,7 +157,7 @@ describe('persistCredentialsToProfile', () => {
 
   it('写入后目录内不留本插件的临时/回滚文件', () => {
     persistCredentialsToProfile(credentials, dir, log);
-    const leftovers = readdirSync(dir).filter((name) => name.includes('imqqbot'));
+    const leftovers = readdirSync(dir).filter((name) => name.includes('akaneqqbot'));
     expect(leftovers).toEqual([]);
   });
 });
