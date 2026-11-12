@@ -1,10 +1,10 @@
 /**
  * 富媒体下载 — 将 QQ 图片/视频/file 附件安全下载到本地
  *
- * 下载后仅通过本地绝对路径提示模型，由模型通过 qqbot_describe_image / ffmpeg / tool-fs 等工具自行分析，
+ * 下载后仅通过本地绝对路径提示模型，由模型通过 akane_describe_image / ffmpeg / tool-fs 等工具自行分析，
  *
- * 下载目录固定为 ~/.dsh-qqbot/media，
- * 文件名用时间戳+随机数防重名，不依赖 agent cwd，便于 qqbot_describe_image / tool-fs 等工具稳定访问。
+ * 下载目录固定为 ~/.dsh-qqbot-akane/media，
+ * 文件名用时间戳+随机数防重名，不依赖 agent cwd，便于 akane_describe_image / tool-fs 等工具稳定访问。
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, sep } from 'node:path';
@@ -177,7 +177,7 @@ async function download(url: string, maxBytes: number): Promise<Buffer> {
 /**
  * 下载消息中的富媒体附件（image/video/file）到本地
  *
- * 下载目录固定为 ~/.dsh-qqbot/media，文件名用时间戳+随机数防重名。
+ * 下载目录固定为 ~/.dsh-qqbot-akane/media，文件名用时间戳+随机数防重名。
  * 下载失败不阻断（由调用方回退描述）。
  */
 export async function downloadMediaAttachments(
@@ -202,7 +202,7 @@ export async function downloadMediaAttachments(
     const destPath = toPosixPath(join(MEDIA_ROOT, uniqueFilename(att.filename)));
 
     if (att.size > maxBytes) {
-      logger.debug(`im-qqbot: skip download (${att.size}B too large): ${att.filename}`);
+      logger.debug(`im-qqbot-akane: skip download (${att.size}B too large): ${att.filename}`);
       continue; // 超限不下载，由 buildDynamicCtx 回退为描述
     }
 
@@ -210,14 +210,14 @@ export async function downloadMediaAttachments(
     try {
       buf = await download(att.url, maxBytes);
     } catch (err) {
-      logger.warn(`im-qqbot: download failed: ${att.filename} — ${err instanceof Error ? err.message : String(err)}`);
+      logger.warn(`im-qqbot-akane: download failed: ${att.filename} — ${err instanceof Error ? err.message : String(err)}`);
       continue; // 下载失败不加入结果，由 buildDynamicCtx 回退为描述
     }
 
     // 图片按真实格式校正扩展名（QQ 的 content_type 不可信），落盘到最终路径
     const localPath = contentType === 'image' ? toPosixPath(correctImageExt(destPath, buf)) : destPath;
     writeFileSync(localPath, buf);
-    logger.debug(`im-qqbot: attachment downloaded: ${att.filename} (${formatSize(buf.length)}) → ${localPath}`);
+    logger.debug(`im-qqbot-akane: attachment downloaded: ${att.filename} (${formatSize(buf.length)}) → ${localPath}`);
 
     results.push({ filename: att.filename, contentType, localPath });
   }

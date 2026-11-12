@@ -366,13 +366,13 @@ describe('QuestionChannel.install routing', () => {
   it('uninstall restores the original ask', async () => {
     const sent: SentMessage[] = [];
     const ch = new QuestionChannel(createManager(), createSender(sent), { requireMention: false, askTimeoutMs: 60_000 }, createLogger());
-    const uq: { ask: (r: UserQuestionRequest) => Promise<UserQuestionResult>; __qqQuestionPatched?: boolean } = {
+    const uq: { ask: (r: UserQuestionRequest) => Promise<UserQuestionResult>; __akaneQuestionPatched?: boolean } = {
       ask: async () => ({ answers: [] }),
     };
     ch.install({ get: (n: string) => (n === 'userQuestions' ? uq : undefined) });
-    expect(uq.__qqQuestionPatched).toBe(true);
+    expect(uq.__akaneQuestionPatched).toBe(true);
     ch.uninstall();
-    expect(uq.__qqQuestionPatched).toBeUndefined();
+    expect(uq.__akaneQuestionPatched).toBeUndefined();
   });
 
   it('disables gracefully when the userQuestions service is missing', () => {

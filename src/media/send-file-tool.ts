@@ -1,5 +1,5 @@
 /**
- * 内置 qqbot_send_file 工具 — 将本地文件发送给 QQ 用户或群。
+ * 内置 akane_send_file 工具 — 将本地文件发送给 QQ 用户或群。
  *
  *   - 发送目标默认自动定位（exec.agent → SessionManager.findByAgent → replyTarget），
  *     无需模型手动传 openid；显式 target 参数作为覆盖。
@@ -16,7 +16,7 @@ import type { Logger, ReplyTarget } from '../types.ts';
 import { isPathAllowed, resolveAgentCwd, sendMediaFile, type MediaSenderLike } from './send-media.ts';
 
 /** 工具名（qqbot 前缀避免与其他通道的同名工具冲突） */
-export const SEND_FILE_TOOL_NAME = 'qqbot_send_file';
+export const SEND_FILE_TOOL_NAME = 'akane_send_file';
 
 const DESCRIPTION =
   'Send a local file (image, video, voice, or generic file) to the QQ user or group '
@@ -32,7 +32,7 @@ interface ToolsRegistryLike {
   register(definition: unknown): unknown;
 }
 
-/** qqbot_send_file 的合法参数 */
+/** akane_send_file 的合法参数 */
 interface SendFileArgs {
   file_path: string;
   target?: string;
@@ -48,7 +48,7 @@ function parseTarget(input: string): ReplyTarget | undefined {
   return { scope, targetId };
 }
 
-/** 注册 qqbot_send_file 工具（tools 服务缺失时优雅降级，不阻断插件启动） */
+/** 注册 akane_send_file 工具（tools 服务缺失时优雅降级，不阻断插件启动） */
 export function registerSendFileTool(
   ctx: Context,
   bot: MediaSenderLike,
@@ -58,7 +58,7 @@ export function registerSendFileTool(
 ): void {
   const tools = ctx.get('tools') as ToolsRegistryLike | undefined;
   if (!tools?.register) {
-    logger.warn('im-qqbot: tools 服务不可用，qqbot_send_file 工具未注册');
+    logger.warn('im-qqbot-akane: tools 服务不可用，akane_send_file 工具未注册');
     return;
   }
 
@@ -103,7 +103,7 @@ export function registerSendFileTool(
     async execute(args: unknown, exec: { signal: AbortSignal; agent?: unknown }): Promise<Record<string, unknown>> {
       const { file_path, target } = args as SendFileArgs;
       if (typeof file_path !== 'string' || file_path.length === 0) {
-        throw new Error('qqbot_send_file: `file_path` must be a non-empty string');
+        throw new Error('akane_send_file: `file_path` must be a non-empty string');
       }
 
       // 1. 解析发送目标：显式 target > 当前会话（exec.agent → SessionRecord）
@@ -111,35 +111,35 @@ export function registerSendFileTool(
       if (target !== undefined && target !== '') {
         replyTarget = parseTarget(target);
         if (replyTarget === undefined) {
-          throw new Error(`qqbot_send_file: target 格式错误，需要 c2c:openid 或 group:openid，收到: ${target}`);
+          throw new Error(`akane_send_file: target 格式错误，需要 c2c:openid 或 group:openid，收到: ${target}`);
         }
       } else if (exec.agent !== undefined) {
         replyTarget = manager.findByAgent(exec.agent as DshAgent)?.replyTarget;
       }
       if (replyTarget === undefined) {
-        throw new Error('qqbot_send_file: 无法确定发送目标，请显式传 target 参数');
+        throw new Error('akane_send_file: 无法确定发送目标，请显式传 target 参数');
       }
 
       // 2. 校验文件 + 路径白名单
       const absPath = resolve(file_path);
       if (!isPathAllowed(absPath, config.sendFile, cwd)) {
-        throw new Error(`qqbot_send_file: file_path 不在允许的目录内: ${absPath}`);
+        throw new Error(`akane_send_file: file_path 不在允许的目录内: ${absPath}`);
       }
       if (!existsSync(absPath)) {
-        throw new Error(`qqbot_send_file: 文件不存在: ${absPath}`);
+        throw new Error(`akane_send_file: 文件不存在: ${absPath}`);
       }
 
       // 3. 按扩展名分类发送（与交付物投递共用 send-media 的分发实现）
       const fileName = basename(absPath);
       const result = await sendMediaFile(bot, replyTarget, absPath);
       if (result.outcome === 'missing') {
-        throw new Error(`qqbot_send_file: 文件不存在或不可读: ${absPath}`);
+        throw new Error(`akane_send_file: 文件不存在或不可读: ${absPath}`);
       }
       if (result.outcome === 'failed') {
-        throw new Error(`qqbot_send_file: 发送失败: ${result.error}`);
+        throw new Error(`akane_send_file: 发送失败: ${result.error}`);
       }
 
-      logger.info(`im-qqbot: qqbot_send_file 发送 ${fileName} (${result.size} bytes) → ${replyTarget.scope}:${replyTarget.targetId}`);
+      logger.info(`im-qqbot-akane: akane_send_file 发送 ${fileName} (${result.size} bytes) → ${replyTarget.scope}:${replyTarget.targetId}`);
 
       return {
         fileName,
@@ -152,5 +152,5 @@ export function registerSendFileTool(
   };
 
   tools.register(definition);
-  logger.info('im-qqbot: qqbot_send_file 工具已注册');
+  logger.info('im-qqbot-akane: akane_send_file 工具已注册');
 }

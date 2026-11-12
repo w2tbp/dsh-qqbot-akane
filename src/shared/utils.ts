@@ -28,10 +28,10 @@ function readPluginVersion(): string {
 /**
  * 构造 User-Agent 头
  *
- * 格式: dsh-qqbot/{version} (Node/{nodeVersion}; {platform})
+ * 格式: dsh-qqbot-akane/{version} (Node/{nodeVersion}; {platform})
  */
 export function buildUserAgent(): string {
-  return `dsh-qqbot/${PLUGIN_VERSION} (Node/${process.versions.node}; ${os.platform()})`;
+  return `dsh-qqbot-akane/${PLUGIN_VERSION} (Node/${process.versions.node}; ${os.platform()})`;
 }
 
 /**
@@ -88,7 +88,7 @@ function findProfileBySymlink(baseDir: string): string | null {
     return null;
   }
   const match = (name: string): string | null => {
-    const linked = resolve(profilesRoot, name, 'node_modules', '@tencent-connect', 'dsh-qqbot');
+    const linked = resolve(profilesRoot, name, 'node_modules', '@akane', 'dsh-qqbot');
     try {
       return realpathSync(linked) === realBase ? resolve(profilesRoot, name) : null;
     } catch {

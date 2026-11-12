@@ -48,7 +48,7 @@ export interface UserQuestionResult {
 
 export interface UserQuestionsServiceLike {
   ask: (request: UserQuestionRequest) => Promise<UserQuestionResult>;
-  __qqQuestionPatched?: boolean;
+  __akaneQuestionPatched?: boolean;
 }
 
 // ── 依赖接口（结构化，便于单测） ──
@@ -130,9 +130,9 @@ export class QuestionChannel {
    */
   public install(ctx: { get(name: string): unknown }): void {
     const uq = ctx.get('userQuestions') as UserQuestionsServiceLike | undefined;
-    if (!uq || uq.__qqQuestionPatched) return;
+    if (!uq || uq.__akaneQuestionPatched) return;
     if (typeof uq.ask !== 'function') {
-      this.logger.warn('im-qqbot: userQuestions service lacks ask() — QQ question channel disabled');
+      this.logger.warn('im-qqbot-akane: userQuestions service lacks ask() — QQ question channel disabled');
       return;
     }
 
@@ -144,15 +144,15 @@ export class QuestionChannel {
       if (record) return self.askViaQQ(record, request);
       return self.origAsk!(request);
     };
-    Object.defineProperty(uq, '__qqQuestionPatched', { value: true, configurable: true, enumerable: false });
+    Object.defineProperty(uq, '__akaneQuestionPatched', { value: true, configurable: true, enumerable: false });
     this.uq = uq;
-    this.logger.info('im-qqbot: QQ question channel installed');
+    this.logger.info('im-qqbot-akane: QQ question channel installed');
   }
 
   public uninstall(): void {
     if (this.uq && this.origAsk) {
       this.uq.ask = this.origAsk;
-      delete this.uq.__qqQuestionPatched;
+      delete this.uq.__akaneQuestionPatched;
       this.uq = undefined;
       this.origAsk = undefined;
     }
@@ -252,7 +252,7 @@ export class QuestionChannel {
       }
       entry.timer = setTimeout(() => this.onTimeout(key), this.config.askTimeoutMs);
       this.pending.set(key, entry);
-      this.logger.info(`im-qqbot: question sent to QQ, waiting for answer key=${key}`);
+      this.logger.info(`im-qqbot-akane: question sent to QQ, waiting for answer key=${key}`);
     });
   }
 
@@ -276,7 +276,7 @@ export class QuestionChannel {
     this.pending.delete(key);
     this.clearTimer(entry);
     this.removeAbort(entry);
-    this.logger.info(`im-qqbot: question answered via QQ key=${key}`);
+    this.logger.info(`im-qqbot-akane: question answered via QQ key=${key}`);
     entry.resolve({ answers: entry.collected });
   }
 
@@ -290,13 +290,13 @@ export class QuestionChannel {
           await this.sender.sendMarkdown(record.replyTarget, formatQuestion(question, hint, true), { keyboard });
           return;
         } catch (err) {
-          this.logger.warn(`im-qqbot: keyboard send failed, fallback to text: ${err instanceof Error ? err.message : String(err)}`);
+          this.logger.warn(`im-qqbot-akane: keyboard send failed, fallback to text: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
       await this.sender.sendMarkdown(record.replyTarget, formatQuestion(question, hint, false));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      this.logger.error(`im-qqbot: question send failed key=${record.sessionKey}: ${msg}`);
+      this.logger.error(`im-qqbot-akane: question send failed key=${record.sessionKey}: ${msg}`);
       throw new Error(`failed to deliver question to QQ: ${msg}`);
     }
   }

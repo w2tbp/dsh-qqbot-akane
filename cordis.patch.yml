@@ -1,6 +1,6 @@
-# dsh-im-qqbot bundle patch
+# dsh-qqbot-akane bundle patch（@tencent-connect/dsh-qqbot 0.5.5 的本地 fork）
 #
-# 当本包通过 `dsh plugin --profile <name> add @tencent-connect/dsh-qqbot` 安装后，
+# 当本包通过 `dsh plugin --profile <name> add <本目录路径>` 安装后，
 # dsh 启动时自动加载此 patch。
 #
 # 环境变量：
@@ -9,10 +9,10 @@
 #
 # 叠加顺序：dsh-base → 本 bundle patch → profile cordis.patch.yml → --patch
 
-# ── 插入 im-qqbot 插件行 ──
+# ── 插入 im-qqbot-akane 插件行 ──
 - insert:
-    - id: im-qqbot
-      name: '@tencent-connect/dsh-qqbot'
+    - id: im-qqbot-akane
+      name: '@akane/dsh-qqbot'
       config:
         appId: __FROM_ENV__
         appSecret: __FROM_ENV__
@@ -23,5 +23,6 @@
         sessionIdleTimeout: 1800000
         maxQueue: 20
         processingTimeoutMs: 1800000
-        historyLimit: 10
+        # 10 → 40：隐式唤醒要靠群历史补上下文，缓冲太浅等于没上下文
+        historyLimit: 40
         debug: false

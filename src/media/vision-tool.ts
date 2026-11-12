@@ -1,5 +1,5 @@
 /**
- * 内置 qqbot_describe_image 视觉工具。
+ * 内置 akane_describe_image 视觉工具。
  *
  * 复用 dsh 生态的 llm + attachments 服务：
  *   1. 加载图片（本地绝对路径 / http URL）→ magic bytes 嗅探 mediaType
@@ -44,14 +44,14 @@ interface ToolsRegistryLike {
   register(definition: unknown): unknown;
 }
 
-/** qqbot_describe_image 的合法参数 */
+/** akane_describe_image 的合法参数 */
 interface DescribeImageArgs {
   image: string;
   prompt?: string;
 }
 
 /** 工具名（qqbot 前缀避免与外部 describe-image 包的同名工具冲突） */
-export const DESCRIBE_IMAGE_TOOL_NAME = 'qqbot_describe_image';
+export const DESCRIBE_IMAGE_TOOL_NAME = 'akane_describe_image';
 
 const DESCRIPTION =
   'Inspect one image and return the text the user needs. The image is a local absolute path '
@@ -85,19 +85,19 @@ async function loadImageBytes(
   let data: Uint8Array;
   if (/^https?:\/\//i.test(image)) {
     const resp = await fetch(image, { signal, redirect: 'error' });
-    if (!resp.ok) throw new Error(`qqbot_describe_image: download failed (HTTP ${resp.status})`);
+    if (!resp.ok) throw new Error(`akane_describe_image: download failed (HTTP ${resp.status})`);
     const buf = Buffer.from(await resp.arrayBuffer());
-    if (buf.length > maxBytes) throw new Error(`qqbot_describe_image: image too large (${buf.length} bytes)`);
+    if (buf.length > maxBytes) throw new Error(`akane_describe_image: image too large (${buf.length} bytes)`);
     data = new Uint8Array(buf);
   } else {
     const info = await stat(image).catch(() => null);
-    if (!info?.isFile()) throw new Error(`qqbot_describe_image: image file not found: ${image}`);
-    if (info.size > maxBytes) throw new Error(`qqbot_describe_image: image too large (${info.size} bytes)`);
+    if (!info?.isFile()) throw new Error(`akane_describe_image: image file not found: ${image}`);
+    if (info.size > maxBytes) throw new Error(`akane_describe_image: image too large (${info.size} bytes)`);
     data = new Uint8Array(await readFile(image));
   }
 
   const mediaType = sniffImageMediaType(data);
-  if (mediaType === null) throw new Error('qqbot_describe_image: unrecognized image format (png/jpeg/gif/webp only)');
+  if (mediaType === null) throw new Error('akane_describe_image: unrecognized image format (png/jpeg/gif/webp only)');
   return { data, mediaType };
 }
 
@@ -121,7 +121,7 @@ async function callVision(
   signal: AbortSignal,
 ): Promise<string> {
   // v4 producer-owned source kind（迁移器同款改写）；本地 dsh-llm 类型尚为 v3 联合，做类型桥接
-  const visionSource = { kind: 'plugin:dsh-im-qqbot' } as unknown as { kind: 'plugin'; plugin: string };
+  const visionSource = { kind: 'plugin:dsh-im-qqbot-akane' } as unknown as { kind: 'plugin'; plugin: string };
 
   const message = createUserMessage({
     content: [
@@ -151,7 +151,7 @@ async function callVision(
     .map((block) => block.text)
     .join(' ')
     .trim();
-  if (text.length === 0) throw new Error('qqbot_describe_image: vision model returned no text');
+  if (text.length === 0) throw new Error('akane_describe_image: vision model returned no text');
   return text;
 }
 
@@ -210,29 +210,29 @@ export function ensureVisionInputModal(vision: VisionConfig, logger: Logger): vo
     // 逐层定位 llm-pi-ai.providers.{provider}.models（原地遍历，保留原文）
     const piAi = root.get('llm-pi-ai', true);
     if (!isMap(piAi)) {
-      logger.warn(`im-qqbot: settings.yaml 未找到 llm-pi-ai，请手动确认 vision 模型已声明 image 输入`);
+      logger.warn(`im-qqbot-akane: settings.yaml 未找到 llm-pi-ai，请手动确认 vision 模型已声明 image 输入`);
       return;
     }
     const providers = piAi.get('providers', true);
     if (!isMap(providers)) {
-      logger.warn(`im-qqbot: settings.yaml 未找到 llm-pi-ai.providers.${vision.provider}，请手动确认 vision 模型已声明 image 输入`);
+      logger.warn(`im-qqbot-akane: settings.yaml 未找到 llm-pi-ai.providers.${vision.provider}，请手动确认 vision 模型已声明 image 输入`);
       return;
     }
     const provider = providers.get(vision.provider, true);
     if (!isMap(provider)) {
-      logger.warn(`im-qqbot: settings.yaml 未找到 llm-pi-ai.providers.${vision.provider}，请手动确认 vision 模型已声明 image 输入`);
+      logger.warn(`im-qqbot-akane: settings.yaml 未找到 llm-pi-ai.providers.${vision.provider}，请手动确认 vision 模型已声明 image 输入`);
       return;
     }
     const models = provider.get('models', true);
     if (!isSeq(models)) {
-      logger.warn(`im-qqbot: settings.yaml 未找到 llm-pi-ai.providers.${vision.provider}.models，请手动确认 vision 模型已声明 image 输入`);
+      logger.warn(`im-qqbot-akane: settings.yaml 未找到 llm-pi-ai.providers.${vision.provider}.models，请手动确认 vision 模型已声明 image 输入`);
       return;
     }
     const model = models.items.find(
       (item): item is NonNullable<typeof item> => isMap(item) && isScalar(item.get('id', true)) && String(item.get('id', true)) === vision.model,
     );
     if (model === undefined || !isMap(model)) {
-      logger.warn(`im-qqbot: settings.yaml 未找到 vision 模型 ${vision.model}，请手动确认已声明 image 输入`);
+      logger.warn(`im-qqbot-akane: settings.yaml 未找到 vision 模型 ${vision.model}，请手动确认已声明 image 输入`);
       return;
     }
 
@@ -246,12 +246,12 @@ export function ensureVisionInputModal(vision: VisionConfig, logger: Logger): vo
 
     // 乐观校验：写入窗口内被外部改动（宿主设置流程）则放弃，下次启动幂等重试
     if (readFileSync(settingsPath, 'utf8') !== before) {
-      logger.warn('im-qqbot: settings.yaml 在写入窗口内被外部修改，跳过 vision input 补写（下次启动重试）');
+      logger.warn('im-qqbot-akane: settings.yaml 在写入窗口内被外部修改，跳过 vision input 补写（下次启动重试）');
       return;
     }
 
     // 原子写：同目录临时文件 + rename
-    const tmpPath = `${settingsPath}.imqqbot.tmp`;
+    const tmpPath = `${settingsPath}.akaneqqbot.tmp`;
     try {
       writeFileSync(tmpPath, next, 'utf8');
       renameSync(tmpPath, settingsPath);
@@ -259,17 +259,17 @@ export function ensureVisionInputModal(vision: VisionConfig, logger: Logger): vo
       try { unlinkSync(tmpPath); } catch { /* 临时文件可能不存在 */ }
       throw err;
     }
-    logger.info(`im-qqbot: 已为 vision 模型补充 input: [text, image] (${vision.provider}/${vision.model})`);
+    logger.info(`im-qqbot-akane: 已为 vision 模型补充 input: [text, image] (${vision.provider}/${vision.model})`);
   } catch (err) {
-    logger.warn(`im-qqbot: 检查 settings.yaml vision input 失败: ${err instanceof Error ? err.message : String(err)}`);
+    logger.warn(`im-qqbot-akane: 检查 settings.yaml vision input 失败: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 
-/** 注册 qqbot_describe_image 工具（服务缺失时优雅降级，不阻断插件启动） */
+/** 注册 akane_describe_image 工具（服务缺失时优雅降级，不阻断插件启动） */
 export function registerDescribeImageTool(ctx: Context, vision: VisionConfig, logger: Logger): void {
   if (!vision.enabled) return;
   if (!vision.provider || !vision.model) {
-    logger.warn('im-qqbot: vision.provider/model 未配置，qqbot_describe_image 工具未注册');
+    logger.warn('im-qqbot-akane: vision.provider/model 未配置，akane_describe_image 工具未注册');
     return;
   }
 
@@ -277,7 +277,7 @@ export function registerDescribeImageTool(ctx: Context, vision: VisionConfig, lo
   const llm = ctx.get('llm') as LlmRuntimeLike | undefined;
   const attachments = ctx.get('attachments') as AttachmentStoreLike | undefined;
   if (!tools?.register || !llm?.stream || !attachments?.saveImage) {
-    logger.warn('im-qqbot: tools/llm/attachments 服务不可用，qqbot_describe_image 工具未注册');
+    logger.warn('im-qqbot-akane: tools/llm/attachments 服务不可用，akane_describe_image 工具未注册');
     return;
   }
 
@@ -319,7 +319,7 @@ export function registerDescribeImageTool(ctx: Context, vision: VisionConfig, lo
     async execute(args: unknown, exec: { signal: AbortSignal }): Promise<Record<string, unknown>> {
       const { image, prompt } = args as DescribeImageArgs;
       if (typeof image !== 'string' || image.length === 0) {
-        throw new Error('qqbot_describe_image: `image` must be a non-empty string');
+        throw new Error('akane_describe_image: `image` must be a non-empty string');
       }
 
       const loaded = await loadImageBytes(image, vision.maxBytes, exec.signal);
@@ -334,5 +334,5 @@ export function registerDescribeImageTool(ctx: Context, vision: VisionConfig, lo
   };
 
   tools.register(definition);
-  logger.info(`im-qqbot: qqbot_describe_image 工具已注册 (provider=${vision.provider} model=${vision.model})`);
+  logger.info(`im-qqbot-akane: akane_describe_image 工具已注册 (provider=${vision.provider} model=${vision.model})`);
 }

@@ -1,7 +1,7 @@
 /**
- * im-qqbot 浏览器半边 —— QQ Bot 端内扫码绑定入口
+ * im-qqbot-akane 浏览器半边 —— QQ Bot 端内扫码绑定入口
  *
- * 宿主插件在凭据缺失时注册 /qqbot/im-qqbot/bind 状态路由；本插件在
+ * 宿主插件在凭据缺失时注册 /qqbot/im-qqbot-akane/bind 状态路由；本插件在
  * Web / Desktop 提供两个展示位：
  *
  * 1. 设置页「QQ Bot」栏目（settings.section 席位）——注册即展示，
@@ -18,17 +18,17 @@ import { BIND_STATE_PATH } from '../shared/bind-protocol.ts';
 import { BindPanelBody, useBindState, QQ_BOT_LOGO_PATH, installPanelStyles } from './bind-page.ts';
 import { ConfigPanel } from './config-panel.ts';
 
-export const name = 'im-qqbot-client';
+export const name = 'im-qqbot-akane-client';
 export const inject = ['slots', 'sidebarRight', 'sidebarRightTabs'];
 
 /** 侧栏 Tab 类型（ui-sidebar-right 契约的局部投影） */
-const TAB_KIND = 'qqbot-bind';
+const TAB_KIND = 'qqbot-akane-bind';
 /** 席位注册 key（Tab 类型 id，席位按其分发；只需全局唯一，与包名解耦） */
-const TAB_ID = 'im-qqbot/bind';
+const TAB_ID = 'im-qqbot-akane/bind';
 /** 本插件包名（插件详情页按其匹配来源包，只在对应详情页渲染操作按钮） */
-const PACKAGE_NAME = '@tencent-connect/dsh-qqbot';
+const PACKAGE_NAME = '@akane/dsh-qqbot';
 /** 主面板 id（layout.selectPanel 导航目标；keyed main 席位按其分发） */
-const IM_MAIN_PANEL_ID = 'im-qqbot';
+const IM_MAIN_PANEL_ID = 'im-qqbot-akane';
 
 /** ui-sidebar-right 的 Tab 注册表服务（局部投影） */
 interface TabRegistryLike {
@@ -130,7 +130,7 @@ export function apply(ctx: Context): void {
   // 1. 设置页「QQ Bot」栏目（主展示位：注册即展示，无时序依赖）
   if (slots !== undefined) {
     disposers.push(    slots.inject('settings.section', () => slots.register(
-      { name: 'settings.section', id: 'qqbot', order: 7, label: 'QQ 机器人' },
+      { name: 'settings.section', id: 'qqbot-akane', order: 7, label: 'QQ 机器人' },
       QQBotSettingsSection,
     )));
   }
@@ -174,7 +174,7 @@ export function apply(ctx: Context): void {
       ));
       const stopActions = pageSlots.inject('plugins.detail.actions', () => pageSlots.register(
         {
-          name: 'plugins.detail.actions', id: 'im-qqbot-open', order: 20,
+          name: 'plugins.detail.actions', id: 'im-qqbot-akane-open', order: 20,
           inject: () => ({
             packageName: PACKAGE_NAME,
             onOpen: () => layout.selectPanel(IM_MAIN_PANEL_ID),
@@ -200,7 +200,7 @@ export function apply(ctx: Context): void {
 
   (ctx as unknown as { effect(fn: () => () => void, name?: string): void }).effect(() => () => {
     for (const dispose of disposers.reverse()) dispose();
-  }, 'im-qqbot-client.binding');
+  }, 'im-qqbot-akane-client.binding');
 }
 
 /**
@@ -237,7 +237,7 @@ function watchAndPrompt(right: SidebarRightLike | undefined): () => void {
             opened = true;
           } catch (err) {
             // 启动早期 Session surface 可能尚未挂载：保留机会，3s 后随轮询重试
-            console.error('[im-qqbot] 打开绑定页失败，稍后重试', err);
+            console.error('[im-qqbot-akane] 打开绑定页失败，稍后重试', err);
           }
         }
         schedule(3000);

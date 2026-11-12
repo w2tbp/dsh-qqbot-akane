@@ -7,7 +7,7 @@
  *   3. 管理 per-peer 的模型偏好（委托 PrefsStore）
  *
  * 优先级（从高到低）：
- *   per-peer 偏好（~/.dsh-qqbot/model-prefs.json）
+ *   per-peer 偏好（~/.dsh-qqbot-akane/model-prefs.json）
  *   > config 显式指定（cordis.yml 的 provider/model）
  *   > settings.yaml 的 agent-default-model（只读，作为默认兜底）
  *   > 宿主 agentDefaultModel 服务
@@ -42,7 +42,7 @@ export class ModelResolver {
     this.logger = logger;
     this.prefs = new PrefsStore(
       config.debug ? (msg) => this.logger?.debug(msg) : undefined,
-      { onError: (msg) => this.logger?.warn(`im-qqbot: ${msg}`) },
+      { onError: (msg) => this.logger?.warn(`im-qqbot-akane: ${msg}`) },
     );
     this.settings = new SettingsReader();
   }

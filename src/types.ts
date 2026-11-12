@@ -1,5 +1,5 @@
 /**
- * dsh-im-qqbot 插件内部类型定义
+ * dsh-im-qqbot-akane 插件内部类型定义
  */
 
 /** 会话作用域 */

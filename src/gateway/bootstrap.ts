@@ -100,7 +100,7 @@ export async function bootstrapGateway(
     }),
   };
 
-  // ── 附件发送适配器（qqbot_send_file 工具与交付物投递共用） ──
+  // ── 附件发送适配器（akane_send_file 工具与交付物投递共用） ──
   // 包装 bot：让文件发送也走 msgId 兜底 + 被动回复限额管控。
   // 注意：SDK 文件发送暂不支持 event_id，故 allowEvent=false，跳过 event 候选。
   const mediaSender: MediaSenderLike = {
@@ -170,7 +170,7 @@ export async function bootstrapGateway(
   }
 
   bot.on('ready', () => {
-    console.log(`[im-qqbot] Bot ready! appId=${config.appId}`);
+    console.log(`[im-qqbot-akane] Bot ready! appId=${config.appId}`);
   });
 
   // ── 富媒体过期清理 ──
@@ -178,11 +178,11 @@ export async function bootstrapGateway(
     startMediaCleanup(ctx, config.media.ttlHours, logger);
   }
 
-  // ── 视觉工具注册（qqbot_describe_image，复用 dsh llm + attachments） ──
+  // ── 视觉工具注册（akane_describe_image，复用 dsh llm + attachments） ──
   ensureVisionInputModal(config.vision, logger);
   registerDescribeImageTool(ctx, config.vision, logger);
 
-  // ── 附件发送工具注册（qqbot_send_file，发送器见上方 mediaSender） ──
+  // ── 附件发送工具注册（akane_send_file，发送器见上方 mediaSender） ──
   registerSendFileTool(ctx, mediaSender, manager, config, logger);
 
   // ── 生命周期 ──
@@ -198,5 +198,5 @@ export async function bootstrapGateway(
         await manager.disposeAll();
         bot.stop();
       };
-    }, 'im-qqbot.lifecycle');
+    }, 'im-qqbot-akane.lifecycle');
 }
