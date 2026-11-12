@@ -6,6 +6,29 @@ This file records significant dsh-qqbot updates from a product perspective, focu
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.5.5+akane.1] - 2026-11-12
+
+This fork is based on `@tencent-connect/dsh-qqbot@0.5.5`. Four behavioral changes plus a full identity rename, so it can coexist with the original in the same profile.
+
+### Added
+
+- **Wake-word triggering in groups**: three tables — `wakeWords` (strong), `wakeWordsWeak` (weak), `wakeWordExcludes` (blocked substrings). Mentioning her name now works without an @. Matching is lexical: CJK and alphanumeric characters are not boundaries, so "did you see the picture 茜 posted" does not fire; weak words need a vocative signal ("cat, what do you think?" fires; "how much is this cat food", "totoro", "kitty-cat" do not). URLs, code fences, inline code, QQ face tags and `@other-nickname` are masked at equal length before matching; only the first 2000 characters of long messages are scanned; any exception inside the matcher is swallowed so a message is never dropped. With all three tables empty the callback is not even injected — behavior is byte-identical to 0.5.5.
+- **Persona as hot-reloaded files**: new `personaGroupFile` / `personaDirectFile` / `personaLessonsDir`. The persona moves out of the workspace `AGENTS.md` into `persona/*.md` shipped with the plugin, cached by mtime+size, so an edit takes effect on the next message without restarting. Composition order: persona file → lessons → legacy groupPrompt/directPrompt (backward compatible).
+- **Hard blacklist**: `access.c2cDeny` / `access.groupDeny`. Deny is evaluated before `mode` and calls `ctx.stop()` — no reply, no explanation, and the message never enters group history, even when she is @-ed. `groupDeny` matches the sender openid, so blocking one member leaves the rest of the group untouched. The config panel edits both allow and deny lists (it can no longer silently wipe a blacklist).
+
+### Changed
+
+- **Implicit wake-up is no longer amnesia**: fixed an upstream defect where `isImplicitMention` only affected `shouldAnswer`, while history assembly and the mention flag still looked at the explicit @ — so a wake-up by name gave her neither the conversation nor any hint she had been called. Implicit wake-ups now include `[Chat history begins]` and label the message "（有人喊你）" to distinguish it from the explicit `(@you)`.
+- **Persona section placement fixed**: the host sorts sections and drops the `order` field before the waterfall runs, so the plugin's `order: 90` was a no-op and the persona landed at the very end of the prompt. Sections are now located by name and spliced in after `deployment:persona-prefix`. Persona text is injected with `interpolate: false` and with `{{` escaped, so template-like wording in a persona cannot break prompt construction.
+
+### Identity rename (prerequisite for coexistence)
+
+Package `@akane/dsh-qqbot`, plugin id `im-qqbot-akane`, data dir `~/.dsh-qqbot-akane`, routes `/qqbot/im-qqbot-akane/*`, tools `akane_describe_image` / `akane_send_file`, plus UI seats, style ids, temp/rollback file names, the `ask_user_question` re-entrancy flag and the QR `source`. Leaving the re-entrancy flag or the profile-locating path unchanged would cause silent failures when both versions are loaded: the fork's question channel gets skipped, or credentials are written into the original's profile.
+
+### Fixed
+
+- Flaky mtime assertions in the inherited test suite: `utimesSync` can round to `-1µs` on ext4, so the equality checks now allow a ±1ms tolerance.
+
 ## [0.5.5] - 2026-10-30
 
 ### Fixed

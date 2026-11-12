@@ -4,9 +4,8 @@
 
 **A QQ Bot plugin for [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (dsh), connecting DeepSeek AI assistants to QQ private and group chats.**
 
-[![npm version](https://img.shields.io/npm/v/@tencent-connect/dsh-qqbot)](https://www.npmjs.com/package/@tencent-connect/dsh-qqbot)
+![fork of @tencent-connect/dsh-qqbot 0.5.5](https://img.shields.io/badge/fork-dsh--qqbot%200.5.5-orange)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
-[![GitHub stars](https://img.shields.io/github/stars/tencent-connect/dsh-qqbot)](https://github.com/tencent-connect/dsh-qqbot)
 [![QQ Bot](https://img.shields.io/badge/QQ_Bot-API_v2-red)](https://bot.q.qq.com/wiki/)
 
 <br/>
@@ -24,10 +23,31 @@ Scan to join the QQ group / channel
 
 </div>
 
+## About this fork
+
+This repo is a local fork of `@tencent-connect/dsh-qqbot@0.5.5`. Only triggering and persona behaviour changed; every identity slot is renamed, so **the fork and the original can be installed in the same profile without interference** (flip which one runs with `disabled: true`).
+
+| Identity slot | Original | This fork |
+|---|---|---|
+| npm package | `@tencent-connect/dsh-qqbot` | `@akane/dsh-qqbot` |
+| plugin id | `im-qqbot` | `im-qqbot-akane` |
+| data dir | `~/.dsh-qqbot` | `~/.dsh-qqbot-akane` |
+| bind routes | `/qqbot/im-qqbot/*` | `/qqbot/im-qqbot-akane/*` |
+| vision / send-file tools | `qqbot_describe_image` / `qqbot_send_file` | `akane_describe_image` / `akane_send_file` |
+
+New capabilities: group wake words, history carried on implicit wake-up, persona as hot-reloaded files, blacklist enforced in code.
+
+```bash
+pnpm install && pnpm build
+npx @deepseek-ai/dsh plugin --profile <name> add /path/to/dsh-qqbot-akane
+```
+
+`dsh plugin add` uses a pnpm link (absolute path), so after editing sources only `pnpm build` is needed — no reinstall.
+
 ## Architecture
 
 ```
-QQ User → QQ WebSocket → dsh-qqbot → ctx.agents → dsh agent loop → LLM
+QQ User → QQ WebSocket → dsh-qqbot-akane → ctx.agents → dsh agent loop → LLM
                                  ↑                           │
                                  └── session/event ──────────┘
                                        (assistant reply → QQ sendMarkdown)
@@ -35,7 +55,7 @@ QQ User → QQ WebSocket → dsh-qqbot → ctx.agents → dsh agent loop → LLM
 
 ## Installation
 
-### Method 1: Desktop install (recommended)
+### Method 1: Desktop install (original package only)
 
 No command line needed — everything happens inside the app:
 
@@ -67,15 +87,15 @@ In environments without the in-app binding page (pure CLI), set `QQBOT_BIND_OPEN
 
 > **Note**: Upgrade to `0.4.0` or later for browser-link scanning, which avoids QR code misalignment in some terminals.
 
-### Method 3: Local path
+### Method 3: Local path (the only way to install this fork)
 
 ```bash
 # Build
-cd /path/to/dsh-qqbot
+cd /path/to/dsh-qqbot-akane
 pnpm install && pnpm build
 
 # Add to a profile (local path)
-npx @deepseek-ai/dsh plugin --profile qqbot add /path/to/dsh-qqbot
+npx @deepseek-ai/dsh plugin --profile qqbot add /path/to/dsh-qqbot-akane
 
 # Start
 export QQBOT_APPID="yourAppID" QQBOT_SECRET="yourAppSecret"
@@ -86,7 +106,7 @@ npx @deepseek-ai/dsh --profile qqbot
 
 ```bash
 export QQBOT_APPID="yourAppID" QQBOT_SECRET="yourAppSecret"
-npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
+npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot-akane/cordis.dev.yml
 ```
 
 ## Configuration
@@ -99,8 +119,14 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
 | `model` | string | `deepseek-chat` | Model name |
 | `preset` | string | - | Agent preset id |
 | `cwd` | string | `process.cwd()` | Agent working directory |
-| `requireMention` | boolean | `true` | Whether group messages require @bot to trigger |
-| `groupPrompt` | string | - | Extra system prompt for group chats |
+| `requireMention` | boolean | `true` | Whether group messages require @bot or a wake word to trigger |
+| `wakeWords` | string[] | `[]` | Strong group wake words, see "Wake words" |
+| `wakeWordsWeak` | string[] | `[]` | Weak wake words (need a vocative signal) |
+| `wakeWordExcludes` | string[] | `[]` | Blocked substrings such as compound words |
+| `personaGroupFile` | string | `''` | Group persona file (empty = not injected), see "Persona files" |
+| `personaDirectFile` | string | `''` | Direct-chat persona file |
+| `personaLessonsDir` | string | `''` | Lessons directory (`*.md` joined in filename order) |
+| `groupPrompt` | string | - | Extra system prompt for group chats (legacy, coexists with persona files) |
 | `directPrompt` | string | - | Extra system prompt for direct chats |
 | `textChunkLimit` | number | `4500` | Max chars per message |
 | `streaming` | boolean | `true` | Enable streaming output (always disabled in groups) |
@@ -118,8 +144,43 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
 |------|------|--------|------|
 | `access.c2cMode` | `open`/`allowlist`/`disabled` | `open` | Direct-chat access mode |
 | `access.c2cAllow` | string[] | `[]` | Direct-chat allowlist (user openid) |
+| `access.c2cDeny` | string[] | `[]` | Direct-chat blocklist (user openid) |
 | `access.groupMode` | `open`/`allowlist`/`disabled` | `open` | Group access mode |
 | `access.groupAllow` | string[] | `[]` | Group allowlist (group openid) |
+| `access.groupDeny` | string[] | `[]` | Group-member blocklist (sender openid — blocks a person, not the group) |
+
+Deny is evaluated before `mode`: a hit calls `ctx.stop()`, which means no reply, no explanation, and the message never enters group history — even when she is @-ed. This belongs in middleware because a prompt-level rule of this kind gets violated probabilistically.
+
+### Wake words
+
+All three tables default to empty, which keeps behaviour identical to 0.5.5 (explicit @ only). Once filled, calling her name in a group triggers her — and the group history comes along:
+
+```yaml
+config:
+  wakeWords:       # strong: fires whenever it stands as a word
+    - akane
+    - 茜茜
+  wakeWordsWeak:   # weak: needs a vocative cue (clause start, "cat, what do you think")
+    - 猫
+  wakeWordExcludes: # masked out, so "panda" / "cat food" cannot fire
+    - 熊猫
+    - 猫粮
+```
+
+Matching is lexical — CJK ideographs and alphanumerics are not boundaries, so "did you see the picture 茜 posted" does not trigger. URLs, code fences, inline code, QQ face tags and `@other-nickname` are masked at equal length before matching, and only the first 2000 characters of a long message are scanned. Editing the tables only touches `cordis.patch.yml`; the host picks the change up over HMR, no rebuild needed.
+
+### Persona files
+
+Who she is and how she talks moved out of the workspace `AGENTS.md` into Markdown files shipped with the plugin, cached by mtime+size — an edit takes effect on the next message, no restart:
+
+```yaml
+config:
+  personaGroupFile: persona/akane-group.md   # relative to the package root, ~ expands
+  personaDirectFile: persona/akane-direct.md
+  personaLessonsDir: persona/lessons         # *.md in filename order, each with its own heading
+```
+
+Composition order is `persona file → lessons → legacy groupPrompt/directPrompt`, and the section is spliced in after the host's `deployment:persona-prefix` rather than appended to the end of the prompt. `persona/README.md` records the writing discipline: behaviour rules and few-shot dialogue, never a list of forbidden words.
 
 ### Rich media (media)
 
@@ -133,7 +194,7 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
 
 | Config | Type | Default | Description |
 |------|------|--------|------|
-| `vision.enabled` | boolean | `false` | Enable vision (qqbot_describe_image tool) |
+| `vision.enabled` | boolean | `false` | Enable vision (akane_describe_image tool) |
 | `vision.provider` | string | - | Vision model provider (e.g. pi-ai) |
 | `vision.model` | string | - | Vision model id (e.g. qwen-vl-max) |
 | `vision.maxBytes` | number | `10MB` | Max image bytes |
@@ -167,6 +228,9 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
 src/
 ├── index.ts                    # Cordis plugin entry (async apply)
 ├── config.ts                   # Config schema
+├── wake.ts                     # Wake-word core (masking + two-tier tables + vocative check)
+├── persona.ts                  # Persona file reader (mtime+size cache, lessons join)
+├── persona-section.ts          # Persona section injection (splice after persona-prefix)
 ├── types.ts                    # Global types
 ├── setup.ts                    # Credential binding (QR)
 ├── gateway/                    # Gateway assembly
@@ -220,9 +284,11 @@ Resolution strategy: in-process reuse → persisted resume → fresh create.
 - **Session isolation** — one independent Agent per QQ direct user / group
 - **Preset support** — mount presets (toolkits, prompts, etc.) via the `agent-presets` service
 - **Idle eviction** — auto-dispose Agents on timeout to prevent memory leaks
+- **Persona vs code** — tone and identity live in hot-reloaded `persona/*.md`; hard rules (blocklist = zero output) live in middleware, because self-restraint in a prompt is only probabilistic
+- **Vocabulary is configuration** — wake words and persona paths live in `cordis.patch.yml`; changing them changes neither code nor the build
 - **Markdown output** — replies sent as Markdown with code-block/table-aware chunking
-- **Image understanding** — supports `qqbot_describe_image` vision to analyze images sent by users
-- **File sending** — supports `qqbot_send_file` to send local files to users (path allowlist enabled by default)
+- **Image understanding** — supports `akane_describe_image` vision to analyze images sent by users
+- **File sending** — supports `akane_send_file` to send local files to users (path allowlist enabled by default)
 - **Question interaction** — supports `ask_user_question` with inline keyboard buttons (mutually exclusive) or numbered replies, one question at a time with timeout
 - **Approval confirmation** — supports `approval/request` to ask for user confirmation on critical actions via allow/deny buttons
 
@@ -240,7 +306,7 @@ pnpm dev
 
 # Debug via --patch
 export QQBOT_APPID="xxx" QQBOT_SECRET="xxx"
-npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot/cordis.dev.yml
+npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot-akane/cordis.dev.yml
 ```
 
 ## License

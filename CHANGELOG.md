@@ -6,6 +6,29 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [0.5.5+akane.1] - 2026-11-12
+
+本 fork 基于 `@tencent-connect/dsh-qqbot@0.5.5`，只做四处行为改动 + 全量身份重命名，可与原版共存于同一 profile。
+
+### 新功能
+
+- **群聊唤醒词触发**：`wakeWords`（强词）/ `wakeWordsWeak`（弱词）/ `wakeWordExcludes`（排除片段）三张表，群里喊名字即回，不必 @。匹配是词法的——汉字与字母数字不构成边界（「看到茜发的那个图」不误触），弱词需要呼格信号（句首、「猫，你怎么看」触发；「这猫粮多少钱」「龙猫」「小猫猫」不触发）。URL、代码块、行内代码、QQ 表情标签、`@别人昵称` 在匹配前等长掩码；超长文本只扫前 2000 字符；匹配器内部异常一律吞掉，绝不吞掉消息。三张表全空时连回调都不注入，行为与 0.5.5 逐字节一致。
+- **人格文件化热加载**：新增 `personaGroupFile` / `personaDirectFile` / `personaLessonsDir`，人格从 workspace 的 `AGENTS.md` 迁到插件内 `persona/*.md`，按 mtime+size 缓存，改完下一条消息生效（不重启）。拼合顺序 `persona 文件 → 课程 → 遗留 groupPrompt/directPrompt`，向后兼容。
+- **黑名单硬拦截**：`access.c2cDeny` / `access.groupDeny`。命中在 `mode` 之前判定，直接 `ctx.stop()`——不回复、不解释、不进群历史，即使被 @ 也一样。`groupDeny` 按发送者 openid 匹配，屏蔽一个人不影响同群其他人。配置面板已同步黑白名单编辑（不会静默清空名单）。
+
+### 行为变更
+
+- **隐式唤醒不再失忆**：修复上游缺陷——`isImplicitMention` 命中时只影响 `shouldAnswer`，群历史拼接与「被提及」判定仍只看显式 @，导致喊名字唤醒时她既读不到这段群聊、也不知道自己被喊。现在隐式唤醒同样带上 `[Chat history begins]` 群历史，并在消息头标注「（有人喊你）」以区分显式 `(@you)`。
+- **人格 section 注入位置修正**：宿主在 waterfall 之前排序并丢弃 `order` 字段，插件的 `order: 90` 实际无效（人格落在整篇 prompt 末尾）。现改为按 name 定位、插入到 `deployment:persona-prefix` 之后。人格文本同时带 `interpolate: false` 并对 `{{` 转义，避免提示词里的模板语法炸掉 prompt 构建。
+
+### 身份重命名（与原版共存的前提）
+
+包名 `@akane/dsh-qqbot`、插件 id `im-qqbot-akane`、数据目录 `~/.dsh-qqbot-akane`、路由 `/qqbot/im-qqbot-akane/*`、工具 `akane_describe_image` / `akane_send_file`、界面席位与样式 id、临时/回滚文件名、`ask_user_question` 防重入标记、扫码 `source` 全部改名。其中防重入标记与 profile 定位路径若不改，两版同时装载会出现「fork 的问答通道被跳过」「凭据写进原版 profile」这类静默故障。
+
+### 问题修复（继承上游测试）
+
+- 修复 `utimesSync` 在 ext4 上把毫秒截断到 `-1µs` 导致的 mtime 断言随机失败（改为 ±1ms 容差）。
+
 ## [0.5.5] - 2026-10-30
 
 ### 问题修复
