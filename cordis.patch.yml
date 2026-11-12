@@ -19,6 +19,16 @@
         # provider/model 留空：从宿主默认模型路由继承
         # 用户可通过 /model 命令在聊天中切换
         requireMention: true
+        # ── 访问控制（R4）──
+        # 黑名单优先于 mode 判定：命中的发送者一律零输出 —— 不回复、不解释、
+        # 不唤起 agent，即使 @ 了本 bot。这条硬规则写在 prompt 里守不住，落在代码层才站得住。
+        # access:
+        #   c2cMode: allowlist
+        #   c2cAllow: [ '你的 QQ OpenID' ]
+        #   c2cDeny: [ '要屏蔽的用户 OpenID' ]
+        #   groupMode: allowlist
+        #   groupAllow: [ '群 OpenID' ]
+        #   groupDeny: [ '要屏蔽的群成员 OpenID' ]
         textChunkLimit: 4500
         sessionIdleTimeout: 1800000
         maxQueue: 20

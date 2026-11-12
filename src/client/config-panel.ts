@@ -21,8 +21,10 @@ import { BIND_CONFIG_PATH } from '../shared/bind-protocol.ts';
 interface AccessControlWire {
   c2cMode: 'open' | 'allowlist' | 'disabled';
   c2cAllow: string[];
+  c2cDeny: string[];
   groupMode: 'open' | 'allowlist' | 'disabled';
   groupAllow: string[];
+  groupDeny: string[];
 }
 
 /** GET 回显的生效配置（appSecret 已剔除） */
@@ -301,6 +303,8 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
         ...a,
         c2cAllow: a.c2cAllow.map((s) => s.trim()).filter(Boolean),
         groupAllow: a.groupAllow.map((s) => s.trim()).filter(Boolean),
+        c2cDeny: (a.c2cDeny ?? []).map((s) => s.trim()).filter(Boolean),
+        groupDeny: (a.groupDeny ?? []).map((s) => s.trim()).filter(Boolean),
       };
     }
 
@@ -334,7 +338,7 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
   }
 
   const dirty = (Object.keys(form) as Array<keyof ConfigWire>).some((key) => !shallowEqual(form[key], initial[key]));
-  const access: AccessControlWire = form.access ?? { c2cMode: 'open', c2cAllow: [], groupMode: 'open', groupAllow: [] };
+  const access: AccessControlWire = form.access ?? { c2cMode: 'open', c2cAllow: [], c2cDeny: [], groupMode: 'open', groupAllow: [], groupDeny: [] };
 
   return createElement('form', { className: 'imqb2-form', onSubmit: submit },
     createElement('div', { className: 'imqb2-group-title' }, '服务范围'),
@@ -360,6 +364,17 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
           onChange: (v) => { patch('access', { ...access, groupAllow: v.split('\n').map((s) => s.trim()) }); },
         })
       : null,
+    // 黑名单在模式判定之前生效，任何模式下都起作用，所以不跟随 mode 条件显示
+    createElement(AreaRow, {
+      label: '私聊黑名单', help: '命中的用户 openid 一律零输出：不回复、不解释，即使被 @', rows: 2,
+      value: (access.c2cDeny ?? []).join('\n'),
+      onChange: (v) => { patch('access', { ...access, c2cDeny: v.split('\n').map((s) => s.trim()) }); },
+    }),
+    createElement(AreaRow, {
+      label: '群成员黑名单', help: '按发送者 openid 屏蔽某个人，同群其他群友照常；同样零输出、不解释', rows: 2,
+      value: (access.groupDeny ?? []).join('\n'),
+      onChange: (v) => { patch('access', { ...access, groupDeny: v.split('\n').map((s) => s.trim()) }); },
+    }),
 
     createElement('div', { className: 'imqb2-group-title' }, '基础设置'),
     createElement(SwitchRow, {

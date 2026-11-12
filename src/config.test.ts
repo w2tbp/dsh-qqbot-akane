@@ -23,6 +23,21 @@ describe('ConfigSchema 默认值（内层外层默认必须对齐：#94-1 不变
     const cfg = ConfigSchema({ access: { c2cMode: 'allowlist' } });
     expect(cfg.access.c2cMode).toBe('allowlist');
   });
+
+  it('黑名单默认空数组（内层子 schema 与外层 default 必须逐字段对齐：#94-1）', () => {
+    const cfg = ConfigSchema({});
+    expect(cfg.access.c2cDeny).toEqual([]);
+    expect(cfg.access.groupDeny).toEqual([]);
+    const empty = ConfigSchema({ access: {} });
+    expect(empty.access.c2cDeny).toEqual([]);
+    expect(empty.access.groupDeny).toEqual([]);
+  });
+
+  it('黑名单可配置', () => {
+    const cfg = ConfigSchema({ access: { groupDeny: ['FAE36E'], c2cDeny: ['1D80'] } });
+    expect(cfg.access.groupDeny).toEqual(['FAE36E']);
+    expect(cfg.access.c2cDeny).toEqual(['1D80']);
+  });
 });
 
 describe('ConfigSchema 唤醒词表（R1）', () => {

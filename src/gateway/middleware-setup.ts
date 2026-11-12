@@ -4,7 +4,7 @@
  * 根据插件配置组装 SDK 内置中间件链（洋葱模型）。
  * 中间件负责过滤与上下文富化；最终消息统一由 bot.on('message') 处理转发。
  */
-import type { QQBot, MiddlewareContext } from '@tencent-connect/qqbot-nodejs';
+import type { QQBot, MiddlewareContext, AccessPolicy } from '@tencent-connect/qqbot-nodejs';
 import {
   errorHandler,
   messageFilter,
@@ -28,6 +28,39 @@ import { questionAnswer } from '../middleware/question-answer.ts';
 import { getHistoryStore, historyGroupKey } from '../features/history-store.ts';
 import { createWaker } from '../wake.ts';
 
+/**
+ * 访问控制策略（R4：黑名单进代码）
+ *
+ * SDK 的 deny 在 mode 之前判定，命中即 ctx.stop() —— 零输出、不唤起 agent、
+ * 不发任何占位解释。「连解释也不要发」这种 prompt 层守不住的硬规则，
+ * 只有落在这一层才站得住。
+ *
+ * group scope 的字符串匹配对象是 groupOpenid，所以「按人屏蔽」必须走函数 matcher。
+ */
+export function buildAccessPolicy(config: ImQQBotConfig, logger: Logger): AccessPolicy {
+  const { access } = config;
+  const groupDeny = access.groupDeny ?? [];
+  return {
+    c2c: {
+      mode: access.c2cMode,
+      allow: access.c2cAllow,
+      deny: access.c2cDeny ?? [],
+    },
+    group: {
+      mode: access.groupMode,
+      allow: access.groupAllow,
+      ...(groupDeny.length > 0
+        ? { deny: [(ctx: MiddlewareContext) => groupDeny.includes(ctx.message.senderId)] }
+        : {}),
+    },
+    onBlock: (_mCtx, reason) => {
+      if (config.debug) {
+        logger.debug(`Access blocked: ${reason}`);
+      }
+    },
+  };
+}
+
 export function setupMiddlewares(
   bot: QQBot,
   config: ImQQBotConfig,
@@ -41,21 +74,7 @@ export function setupMiddlewares(
   bot.use(messageFilter({ skipSelfEcho: false }));
 
   // 3. 访问控制（空名单 = 拒绝所有人，fail-closed）
-  bot.use(accessPolicy({
-    c2c: {
-      mode: config.access.c2cMode,
-      allow: config.access.c2cAllow,
-    },
-    group: {
-      mode: config.access.groupMode,
-      allow: config.access.groupAllow,
-    },
-    onBlock: (_mCtx, reason) => {
-      if (config.debug) {
-        logger.debug(`Access blocked: ${reason}`);
-      }
-    },
-  }));
+  bot.use(accessPolicy(buildAccessPolicy(config, logger)));
 
   // 4. 群历史缓冲 — 放在门控之前，确保所有消息（含未 @bot）都计入上下文
   //    store 走共享单例（getHistoryStore），groupKey 带 appId 前缀，供回复后清空

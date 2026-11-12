@@ -8,10 +8,14 @@ export interface AccessControlConfig {
   c2cMode: 'open' | 'allowlist' | 'disabled';
   /** C2C 白名单（user openid） */
   c2cAllow: string[];
+  /** C2C 黑名单（user openid），优先于 mode 判定 */
+  c2cDeny: string[];
   /** 群聊访问模式 */
   groupMode: 'open' | 'allowlist' | 'disabled';
   /** 群聊白名单（group openid） */
   groupAllow: string[];
+  /** 群聊成员黑名单（sender openid），按人屏蔽，优先于 mode 判定 */
+  groupDeny: string[];
 }
 
 export interface MediaConfig {
@@ -115,8 +119,10 @@ export interface ImQQBotConfig {
 export const AccessControlSchema: Schema<AccessControlConfig> = Schema.object({
   c2cMode: Schema.union(['open', 'allowlist', 'disabled']).default('open').description('C2C访问模式（默认开放）'),
   c2cAllow: Schema.array(Schema.string()).default([]).description('C2C白名单（QQ OpenID）'),
+  c2cDeny: Schema.array(Schema.string()).default([]).description('C2C黑名单（QQ OpenID）：命中直接零输出，连解释也不发'),
   groupMode: Schema.union(['open', 'allowlist', 'disabled']).default('open').description('群聊访问模式（默认开放：群自带进群门槛 + @bot 触发）'),
   groupAllow: Schema.array(Schema.string()).default([]).description('群聊白名单（群 OpenID）'),
+  groupDeny: Schema.array(Schema.string()).default([]).description('群成员黑名单（发送者 QQ OpenID）：按人屏蔽，即使 @ 了本 bot 也不回'),
 });
 
 export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
@@ -145,8 +151,10 @@ export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
   access: AccessControlSchema.default({
     c2cMode: 'open',
     c2cAllow: [],
+    c2cDeny: [],
     groupMode: 'open',
     groupAllow: [],
+    groupDeny: [],
   }).description('访问控制'),
   showToolResults: Schema.boolean().default(false).description('是否展示工具调用成功结果（错误始终展示）'),
   debug: Schema.boolean().default(false),
