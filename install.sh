@@ -5,6 +5,9 @@
 # dsh-base），pnpm 安装后按 dsh.bundle.patch 元数据把本包追加为 bundle 层。
 # 无需 DSH 源码，无需 workspace 链接。
 #
+# 插件装完后会把包内 skills/ 复制到 $DSH_HOME/skills（默认 ~/.dsh/skills），
+# 那是宿主运行时扫描技能的位置，改完不需要重启进程。
+#
 # 用法：
 #   sh install.sh                                            # 安装默认包最新版本
 #   sh install.sh --version 0.2.0                            # 指定版本
@@ -92,6 +95,35 @@ echo "  Profile:  ${PROFILE}"
 echo
 
 dsh plugin --profile "$PROFILE" add "$INSTALL_SPEC" $REGISTRY_ARG
+
+# ── 安装 skills ──
+# 包内 skills/ 是行为规范的唯一载体（表情包库的存取规矩等）。宿主运行时扫描
+# $DSH_HOME/skills，装完下一轮即生效，不需要重启进程。
+DSH_HOME_DIR="${DSH_HOME:-$HOME/.dsh}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SKILL_SRC_DIR="$SCRIPT_DIR/skills"
+
+if [ -d "$SKILL_SRC_DIR" ]; then
+  mkdir -p "$DSH_HOME_DIR/skills"
+  for entry in "$SKILL_SRC_DIR"/*/; do
+    [ -d "$entry" ] || continue
+    name="$(basename "$entry")"
+    dest="$DSH_HOME_DIR/skills/$name"
+    # 目标已存在且内容不同：说明用户可能手改过，备份后再覆盖，不静默丢改动。
+    # 备份必须落在 skills/ 之外——宿主按目录扫描技能，留在里面会被当成
+    # 第二个同名 skill 读进 available_skills。
+    if [ -d "$dest" ] && ! diff -rq "$entry" "$dest" >/dev/null 2>&1; then
+      backup_dir="$DSH_HOME_DIR/skills-backup"
+      mkdir -p "$backup_dir"
+      backup="$backup_dir/$name.bak-$(date +%Y%m%d-%H%M%S)"
+      mv "$dest" "$backup"
+      echo "  skill $name: 旧版本已备份到 $backup"
+    fi
+    mkdir -p "$dest"
+    cp -R "$entry"/. "$dest"/
+    echo "  skill $name → $dest"
+  done
+fi
 
 echo
 echo "=================================================="
