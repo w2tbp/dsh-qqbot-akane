@@ -44,6 +44,8 @@ npx @deepseek-ai/dsh plugin --profile <name> add /path/to/dsh-qqbot-akane
 
 `dsh plugin add` uses a pnpm link (absolute path), so after editing sources only `pnpm build` is needed — no reinstall.
 
+> **Install gotcha**: this package ships its wake tables and persona paths through `- insert:` in `cordis.patch.yml`, but as soon as the profile layer contains an entry with the same id, `--dump-config` shows only the keys that layer lists — the tables disappear from the view. Rather than gamble on merge semantics, **write the profile entry in full** (copy the credentials from the original entry, and include `access`, otherwise it falls back to `c2cMode: open`). Editing the profile patch needs no restart: the host reloads the plugin over HMR and logs another `Bot ready!`.
+
 ## Architecture
 
 ```

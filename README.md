@@ -44,6 +44,8 @@ npx @deepseek-ai/dsh plugin --profile <name> add /path/to/dsh-qqbot-akane
 
 `dsh plugin add` 走 pnpm link（记录绝对路径），改完源码只需 `pnpm build`，不需要重装。
 
+> **安装坑**：本包的 `cordis.patch.yml` 用 `- insert:` 给出词表与 persona 路径，但 profile 层一旦出现同 id 的 `- id: im-qqbot-akane` 条目，`--dump-config` 里这条就只剩 profile 层列出的键——词表/persona 会看不到。为了不赌合并语义，**profile 条目请把需要的键写全**（凭据可从原版条目复制，`access` 也要带上，否则回落到 `c2cMode: open`）。改完 profile patch 不需要重启，宿主会 HMR 重载插件（日志里会再打一条 `Bot ready!`）。
+
 ## 架构
 
 ```
