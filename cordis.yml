@@ -7,7 +7,7 @@
 #   QQBOT_SECRET    - QQ Bot AppSecret
 #   DEEPSEEK_API_KEY - DeepSeek API Key
 #   DSH_CWD         - Agent 工作目录（可选）
-#   HUNYUAN_API_KEY - 视觉模型 API Key（qqbot_describe_image 工具，hunyuan-vision）
+#   HUNYUAN_API_KEY - 视觉模型 API Key（akane_describe_image 工具，hunyuan-vision）
 #   DSH_PRESET_ROOT - 系统预置 preset 目录（可选，默认 ./apps/cli/config/agent-presets）
 
 # ── 核心 spine ──
@@ -52,7 +52,7 @@
   config:
     apiKey: ${DEEPSEEK_API_KEY}
 
-# 视觉模型适配器（qqbot_describe_image 工具用 llm.stream 调多模态模型）
+# 视觉模型适配器（akane_describe_image 工具用 llm.stream 调多模态模型）
 - id: llm-pi-ai
   name: '@deepseek-ai/dsh-llm-pi-ai'
   config:
