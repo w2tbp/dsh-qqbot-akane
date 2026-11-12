@@ -212,7 +212,8 @@ describe('updateProfileConfig', () => {
     utimesSync(patchPath, past, past);
 
     expect(updateProfileConfig({ requireMention: true }, dir, log)).toBe(true);
-    expect(statSync(patchPath).mtimeMs).toBe(past.getTime());
+    // ext4 上 utimesSync 偶发把 ms 截到 -1µs，严格相等会在随机时刻炸（上游测试的环境坑）
+    expect(Math.abs(statSync(patchPath).mtimeMs - past.getTime())).toBeLessThan(1);
   });
 
   it('条目不存在时追加，跳过凭据键', () => {

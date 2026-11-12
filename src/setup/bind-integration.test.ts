@@ -252,7 +252,7 @@ describe('绑定链路 × 真实 persist 落盘（#53 回归）', () => {
     const second = fakeRes();
     await invoke(routes.get(BIND_CONFIG_PATH), fakeReq('POST', '{"requireMention":false}'), second);
     expect(second.statusCode).toBe(200);
-    expect(statSync(patchPath).mtimeMs).toBe(past.getTime()); // 无变化 → 无写 → mtime 不动
+    expect(Math.abs(statSync(patchPath).mtimeMs - past.getTime())).toBeLessThan(1); // 无变化 → 无写 → mtime 不动（±1µs 容差：ext4 utimes 截断）
   });
 
   it('配置保存（长 prompt）：超过 4KB 的请求体正常保存（#69）', async () => {
