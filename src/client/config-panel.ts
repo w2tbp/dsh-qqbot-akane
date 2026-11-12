@@ -38,6 +38,9 @@ type ConfigWire = {
   preset?: string;
   groupPrompt?: string;
   directPrompt?: string;
+  wakeWords?: string[];
+  wakeWordsWeak?: string[];
+  wakeWordExcludes?: string[];
   access?: AccessControlWire;
   cwd?: string;
   personaGroupFile?: string;
@@ -266,6 +269,9 @@ const MODE_OPTIONS: ReadonlyArray<{ value: AccessMode; label: string }> = [
   { value: 'disabled', label: '禁用' },
 ];
 
+/** 三张唤醒词表（提交时统一规范化） */
+const WAKE_LIST_KEYS = ['wakeWords', 'wakeWordsWeak', 'wakeWordExcludes'] as const;
+
 /** 深比较（表单值与初始回显值的 dirty 判断） */
 function shallowEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -340,6 +346,11 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
         c2cDeny: (a.c2cDeny ?? []).map((s) => s.trim()).filter(Boolean),
         groupDeny: (a.groupDeny ?? []).map((s) => s.trim()).filter(Boolean),
       };
+    }
+    // 唤醒词表同理：编辑期允许空行，提交时丢空（服务端还会再去一次重）
+    for (const key of WAKE_LIST_KEYS) {
+      const list = changed[key] as string[] | undefined;
+      if (list !== undefined) changed[key] = list.map((s) => s.trim()).filter(Boolean);
     }
 
     setBusy(true);
@@ -425,6 +436,27 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
       label: '显示工具调用结果', checked: form.showToolResults ?? false,
       help: '在聊天中展示 agent 工具调用的结构化结果',
       onChange: (v) => { patch('showToolResults', v); },
+    }),
+
+    createElement('div', { className: 'imqb2-group-title' }, '群聊唤醒词'),
+    createElement('p', { className: 'imqb2-help' },
+      '不用 @ 也能喊住她。三张表共同判断「这句话是在喊她」还是「这句话只是提到了这个名字」：'
+      + '只在上面的「群聊仅回复 @机器人的消息」打开时才有意义（关掉时群消息本来就全回）；'
+      + '三张表都留空表示隐式唤醒完全关闭。保存写入 profile 里本插件的条目，之后以本页为准。'),
+    createElement(AreaRow, {
+      label: '强唤醒词', help: '一行一个。独立成词就触发，例：akane、茜茜', rows: 3,
+      value: (form.wakeWords ?? []).join('\n'),
+      onChange: (v) => { patch('wakeWords', v.split('\n').map((s) => s.trim())); },
+    }),
+    createElement(AreaRow, {
+      label: '弱唤醒词', help: '一行一个。容易撞车的短词放这里，需要呼格信号才算喊人：句首、后接标点，或紧跟「你/能/帮/在吗」一类。例：猫 → 「猫，你怎么看」触发，「我家猫好胖」不触发', rows: 3,
+      value: (form.wakeWordsWeak ?? []).join('\n'),
+      onChange: (v) => { patch('wakeWordsWeak', v.split('\n').map((s) => s.trim())); },
+    }),
+    createElement(AreaRow, {
+      label: '唤醒排除片段', help: '一行一个。含名字的复合词在这一处不计：填「熊猫」，「我家熊猫好胖」里的名字就不算喊她。例：熊猫、猫粮、表情包', rows: 3,
+      value: (form.wakeWordExcludes ?? []).join('\n'),
+      onChange: (v) => { patch('wakeWordExcludes', v.split('\n').map((s) => s.trim())); },
     }),
 
     createElement('div', { className: 'imqb2-group-title' }, '模型'),

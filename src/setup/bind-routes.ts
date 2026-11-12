@@ -92,6 +92,7 @@ const EDITABLE_CONFIG_KEYS = new Set([
   'requireMention', 'streaming', 'showToolResults', 'debug',
   'provider', 'model', 'preset',
   'groupPrompt', 'directPrompt',
+  'wakeWords', 'wakeWordsWeak', 'wakeWordExcludes',
   'access',
 ]);
 
@@ -106,6 +107,9 @@ const EDITABLE_CONFIG_SCHEMAS: Record<string, (value: unknown) => unknown> = {
   preset: stringSchema('preset'),
   groupPrompt: stringSchema('groupPrompt'),
   directPrompt: stringSchema('directPrompt'),
+  wakeWords: wakeListSchema('强唤醒词'),
+  wakeWordsWeak: wakeListSchema('弱唤醒词'),
+  wakeWordExcludes: wakeListSchema('唤醒排除片段'),
   access: (v) => AccessControlSchema(v as never),
 };
 
@@ -119,6 +123,37 @@ function stringSchema(name: string): (value: unknown) => unknown {
     if (typeof value !== 'string') throw new TypeError(`${name} 必须是字符串`);
     if (value.length > 20000) throw new TypeError(`${name} 过长`);
     return value;
+  };
+}
+
+/** 唤醒词表单项上限：词面会编成 RegExp，不给设置页留任意大的匹配面 */
+const MAX_WAKE_WORD_CHARS = 20;
+/** 唤醒词表条数上限 */
+const MAX_WAKE_WORD_ITEMS = 100;
+
+/**
+ * 唤醒词三张表共用的校验：字符串数组 → 逐项 trim、丢空、按原序去重。
+ *
+ * 返回规范化值而非原值：这里落盘就是词表正本，不依赖客户端先整理过。
+ * 按码点计长，「茜茜」这类 CJK 词与拉丁词在界面上是同一份量。
+ */
+function wakeListSchema(name: string): (value: unknown) => unknown {
+  return (value) => {
+    if (!Array.isArray(value)) throw new TypeError(`${name}：必须是数组，一行一个词`);
+    if (value.length > MAX_WAKE_WORD_ITEMS) {
+      throw new TypeError(`${name}：最多 ${MAX_WAKE_WORD_ITEMS} 个，当前 ${value.length} 个`);
+    }
+    const words = new Set<string>();
+    for (const item of value) {
+      if (typeof item !== 'string') throw new TypeError(`${name}：每一行都必须是文本`);
+      const word = item.trim();
+      if (word === '') continue;
+      if ([...word].length > MAX_WAKE_WORD_CHARS) {
+        throw new TypeError(`${name}：「${word.slice(0, 10)}…」超过 ${MAX_WAKE_WORD_CHARS} 个字`);
+      }
+      words.add(word);
+    }
+    return [...words];
   };
 }
 

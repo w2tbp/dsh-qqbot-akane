@@ -400,6 +400,87 @@ describe('bind-routes', () => {
     expect(json(res)).toMatchObject({ ok: false, error: expect.stringContaining('布尔') });
   });
 
+  it('GET config：唤醒词三张表原样回显（供设置页编辑）', async () => {
+    const { routes } = createHarness({
+      currentConfig: () => ({ wakeWords: ['akane', '茜茜'], wakeWordsWeak: ['猫'], wakeWordExcludes: ['熊猫'] }),
+    });
+    const res = fakeRes();
+    await invoke(routes.get(BIND_CONFIG_PATH), fakeReq('GET', { host: '127.0.0.1:3080' }), res);
+    expect(res.statusCode).toBe(200);
+    expect(json(res)).toEqual({
+      config: { wakeWords: ['akane', '茜茜'], wakeWordsWeak: ['猫'], wakeWordExcludes: ['熊猫'] },
+    });
+  });
+
+  it('POST config：唤醒词表落库前 trim、丢空行、按原序去重', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const { routes } = createHarness({ onUpdateConfig: (c) => { writes.push(c); return true; } });
+    const res = fakeRes();
+    await invoke(
+      routes.get(BIND_CONFIG_PATH),
+      fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' },
+        '{"wakeWords":[" akane ","","茜茜","akane"],"wakeWordExcludes":["熊猫","猫粮"]}'),
+      res,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(writes[0]).toEqual({ wakeWords: ['akane', '茜茜'], wakeWordExcludes: ['熊猫', '猫粮'] });
+  });
+
+  it('POST config：清空唤醒词表是合法值（= 关闭隐式唤醒）', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const { routes } = createHarness({ onUpdateConfig: (c) => { writes.push(c); return true; } });
+    const res = fakeRes();
+    await invoke(
+      routes.get(BIND_CONFIG_PATH),
+      fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' }, '{"wakeWordsWeak":[]}'),
+      res,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(writes[0]).toEqual({ wakeWordsWeak: [] });
+  });
+
+  it('POST config：唤醒词表类型错误被拒（非数组 / 行内非文本）', async () => {
+    const cases: Array<[string, string]> = [
+      ['{"wakeWords":"akane"}', '数组'],
+      ['{"wakeWords":["akane",3]}', '文本'],
+    ];
+    for (const [body, keyword] of cases) {
+      const { routes } = createHarness({ onUpdateConfig: () => true });
+      const res = fakeRes();
+      await invoke(
+        routes.get(BIND_CONFIG_PATH),
+        fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' }, body),
+        res,
+      );
+      expect(res.statusCode).toBe(400);
+      expect(json(res)).toMatchObject({ ok: false, error: expect.stringContaining(keyword) });
+    }
+  });
+
+  it('POST config：唤醒词超出条数/词长上限被拒（词面会编成正则）', async () => {
+    const { routes: overCount } = createHarness({ onUpdateConfig: () => true });
+    const res1 = fakeRes();
+    await invoke(
+      overCount.get(BIND_CONFIG_PATH),
+      fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' },
+        JSON.stringify({ wakeWords: Array.from({ length: 101 }, (_, i) => `词${i}`) })),
+      res1,
+    );
+    expect(res1.statusCode).toBe(400);
+    expect(json(res1)).toMatchObject({ error: expect.stringContaining('最多') });
+
+    const { routes: overLength } = createHarness({ onUpdateConfig: () => true });
+    const res2 = fakeRes();
+    await invoke(
+      overLength.get(BIND_CONFIG_PATH),
+      fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' },
+        JSON.stringify({ wakeWordExcludes: ['一'.repeat(21)] })),
+      res2,
+    );
+    expect(res2.statusCode).toBe(400);
+    expect(json(res2)).toMatchObject({ error: expect.stringContaining('超过') });
+  });
+
   it('跨站 Origin：403（state 与 manual 均拦截）', async () => {
     const { routes } = createHarness();
     const res1 = fakeRes();
