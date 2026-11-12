@@ -14,6 +14,8 @@
  * 挂载 preset（工具集、prompt sections 等），实现场景化配置。
  */
 import { legacyDerivedSessionId, mintSessionId } from './session-id.ts';
+import { buildPersona } from '../persona.ts';
+import { insertPersonaSection, type AssembledPrompt } from '../persona-section.ts';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import type { Context } from '@deepseek-ai/cordis';
 import { createHostAdapter, type HostAdapter } from '../host/adapter.ts';
@@ -51,22 +53,9 @@ const COMPACTION_ERROR_HINTS: Record<string, string> = {
   persistence: '压缩完成但保存失败',
 };
 
-/** system-prompt section 最小结构（name/order/text） */
-interface PromptSection {
-  name: string;
-  order: number;
-  text: string;
-}
-
 /** system-prompt/assemble waterfall 的 context 最小结构 */
 interface AssembleContext {
   agent?: DshAgent;
-}
-
-/** system-prompt/assemble 的组装产物最小结构 */
-interface AssembledPrompt {
-  sections?: PromptSection[];
-  [key: string]: unknown;
 }
 
 /** 复刻宿主 latestCompletedPrefixBoundary：最后一个 turn/end 起到下一 turn 开始前的边界 */
@@ -145,11 +134,11 @@ export class SessionManager {
   }
 
   /**
-   * 通过 system-prompt/assemble waterfall 注入群聊/私聊额外 system prompt。
+   * 通过 system-prompt/assemble waterfall 注入 persona（R3）。
    *
-   * 该事件在每次 turn 构建 request 时触发；此处按会话 scope（群聊/私聊）
-   * 追加对应的额外 prompt section。会话尚未建立（首次 assemble）或未配置
-   * 额外 prompt 时原样返回，不做改动。
+   * 文本来源按序拼合：persona 文件 → lessons 目录 → 遗留 groupPrompt/directPrompt，
+   * 三者皆空时原样返回，不做任何改动（= 行为与 0.5.5 一致）。
+   * 每次 assemble 都重新读文件（mtime 缓存），改人格不需要重启进程。
    */
   private registerScopePromptInjection(): void {
     const assemble = async (
@@ -163,13 +152,10 @@ export class SessionManager {
       const record = this.findByAgent(context.agent);
       if (!record) return assembled;
 
-      const prompt = record.scope === 'group' ? this.config.groupPrompt : this.config.directPrompt;
-      if (!prompt) return assembled;
+      const text = buildPersona(record.scope, this.config);
+      if (!text) return assembled;
 
-      return {
-        ...assembled,
-        sections: [...(assembled.sections ?? []), { name: 'qqbot:scope-prompt', order: 90, text: prompt }],
-      };
+      return insertPersonaSection(assembled, text);
     };
 
     (this.ctx as unknown as {

@@ -54,3 +54,22 @@ describe('ConfigSchema 唤醒词表（R1）', () => {
     expect(createWaker({ strong: cfg.wakeWords, weak: cfg.wakeWordsWeak, excludes: cfg.wakeWordExcludes })).toBeNull();
   });
 });
+
+describe('ConfigSchema persona 路径（R3）', () => {
+  it('未配置 → 三个路径全空 = 不注入，行为与上游 0.5.5 一致', () => {
+    const cfg = ConfigSchema({});
+    expect(cfg.personaGroupFile).toBe('');
+    expect(cfg.personaDirectFile).toBe('');
+    expect(cfg.personaLessonsDir).toBe('');
+  });
+
+  it('相对路径原样保留，由加载器按包根解析', () => {
+    const cfg = ConfigSchema({ personaGroupFile: 'persona/akane-group.md' });
+    expect(cfg.personaGroupFile).toBe('persona/akane-group.md');
+  });
+
+  it('遗留 groupPrompt 仍然可读（后向兼容）', () => {
+    const cfg = ConfigSchema({ groupPrompt: '老配置' });
+    expect(cfg.groupPrompt).toBe('老配置');
+  });
+});
