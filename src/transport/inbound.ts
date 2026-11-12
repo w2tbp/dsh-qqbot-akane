@@ -24,7 +24,7 @@ import type { MiddlewareContext } from '@tencent-connect/qqbot-nodejs';
 
 // ── 类型定义 ──
 
-interface ProcessedMessage {
+export interface ProcessedMessage {
   rawEventType: string;
   kind: 'c2c' | 'group';
   senderId: string;
@@ -38,13 +38,13 @@ interface ProcessedMessage {
   [key: string]: unknown;
 }
 
-interface ResolvedQuote {
+export interface ResolvedQuote {
   text?: string;
   entry?: { senderId?: string; content?: string };
   attachments?: QuotedAttachment[];
 }
 
-interface HistoryEntry {
+export interface HistoryEntry {
   senderId: string;
   senderName?: string;
   content: string;
@@ -52,11 +52,13 @@ interface HistoryEntry {
   messageId: string;
 }
 
-interface MentionState {
+export interface MentionState {
   wasMentioned?: boolean;
+  /** 唤醒词命中等隐式信号（mentionGate 的 isImplicitMention 结果） */
+  implicit?: boolean;
 }
 
-interface MiddlewareState {
+export interface MiddlewareState {
   quote?: ResolvedQuote;
   history?: HistoryEntry[];
   envelope?: string;
@@ -67,7 +69,7 @@ interface MiddlewareState {
   [key: string]: unknown;
 }
 
-interface ProcessedAttachment {
+export interface ProcessedAttachment {
   type: 'voice' | 'image' | 'video' | 'file' | 'unknown';
   filename?: string;
   url?: string;
@@ -156,8 +158,12 @@ export async function handleInbound(
 
 /**
  * 组装 agentBody — AI 实际看到的完整上下文
+ *
+ * awakened = 显式 @ 或隐式唤醒。上游 0.5.5 的三处判断只看 wasMentioned，
+ * 导致喊名字那条消息既拿不到群历史、也不知道自己被叫 —— 隐式唤醒等于失忆。
+ * 标记仍保持区分：显式 (@you)，隐式（有人喊你）。
  */
-function assembleAgentBody(
+export function assembleAgentBody(
   msg: ProcessedMessage,
   state: MiddlewareState,
   scope: ChatScope,
@@ -165,35 +171,36 @@ function assembleAgentBody(
 ): string | null {
   const isGroup = scope === 'group';
   const wasMentioned = state.mention?.wasMentioned ?? false;
+  const awakened = wasMentioned || (state.mention?.implicit ?? false);
 
   const userContent = buildUserContent(msg, state, logger);
 
-  if (isEmptyMessage(userContent, msg.attachments, isGroup, wasMentioned)) return null;
+  if (isEmptyMessage(userContent, msg.attachments, isGroup, awakened)) return null;
 
   const quotePart = buildQuotePart(state.quote);
-  const userMessage = buildUserMessage(userContent, quotePart, msg.senderId, msg.senderName, isGroup, wasMentioned);
+  const userMessage = buildUserMessage(userContent, quotePart, msg.senderId, msg.senderName, isGroup, wasMentioned, awakened);
 
   const dynamicCtx = buildDynamicCtx(msg, state);
 
   const base = dynamicCtx ? `${dynamicCtx}${userMessage}` : userMessage;
-  const agentBody = buildAgentBody(base, state.history, isGroup, wasMentioned);
+  const agentBody = buildAgentBody(base, state.history, isGroup, awakened);
 
   return agentBody;
 }
 
 /**
- * 判断消息是否为空：无文本/语音/附件，且非群聊 @。
- * 群聊被 @ 视为有效触发信号，即使内容为空也保留给 agent。
+ * 判断消息是否为空：无文本/语音/附件，且群聊未被唤醒。
+ * 群聊被 @ 或被唤醒词喊到都视为有效触发信号，即使内容为空也保留给 agent。
  */
 function isEmptyMessage(
   userContent: string,
   attachments: RawAttachment[] | undefined,
   isGroup: boolean,
-  wasMentioned: boolean,
+  awakened: boolean,
 ): boolean {
   if (userContent) return false;
   if (attachments && attachments.length > 0) return false;
-  if (isGroup && wasMentioned) return false;
+  if (isGroup && awakened) return false;
   return true;
 }
 
@@ -246,12 +253,14 @@ function buildUserMessage(
   senderName: string | undefined,
   isGroup: boolean,
   wasMentioned: boolean,
+  awakened: boolean,
 ): string {
   if (!isGroup) {
     return `${quotePart}${userContent}`;
   }
 
-  const mentionTag = wasMentioned ? ' (@you)' : '';
+  // 两种触发方式给不同标记：她需要知道是「被 @ 了」还是「有人喊名字」
+  const mentionTag = wasMentioned ? ' (@you)' : awakened ? '（有人喊你）' : '';
   const displayName = senderName ?? shortSenderId(senderId);
   const senderTag = `[${displayName} (${senderId})]`;
   return `${quotePart}${senderTag} ${userContent}${mentionTag}`;
@@ -343,9 +352,9 @@ function buildAgentBody(
   base: string,
   history: HistoryEntry[] | undefined,
   isGroup: boolean,
-  wasMentioned: boolean,
+  awakened: boolean,
 ): string {
-  if (!isGroup || !wasMentioned || !history || history.length === 0) {
+  if (!isGroup || !awakened || !history || history.length === 0) {
     return base;
   }
 
