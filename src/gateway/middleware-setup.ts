@@ -4,7 +4,7 @@
  * 根据插件配置组装 SDK 内置中间件链（洋葱模型）。
  * 中间件负责过滤与上下文富化；最终消息统一由 bot.on('message') 处理转发。
  */
-import type { QQBot } from '@tencent-connect/qqbot-nodejs';
+import type { QQBot, MiddlewareContext } from '@tencent-connect/qqbot-nodejs';
 import {
   errorHandler,
   messageFilter,
@@ -26,6 +26,7 @@ import { buildCommandList } from '../commands/index.ts';
 import { attachmentProcessor } from '../middleware/attachment.ts';
 import { questionAnswer } from '../middleware/question-answer.ts';
 import { getHistoryStore, historyGroupKey } from '../features/history-store.ts';
+import { createWaker } from '../wake.ts';
 
 export function setupMiddlewares(
   bot: QQBot,
@@ -70,8 +71,21 @@ export function setupMiddlewares(
   }));
 
   // 5. 群聊 @bot 门控
+  //    唤醒词表全空时连 isImplicitMention 都不注入 —— 关闭态零开销，行为与上游 0.5.5 一致
+  const waker = createWaker({
+    strong: config.wakeWords,
+    weak: config.wakeWordsWeak,
+    excludes: config.wakeWordExcludes,
+    appId: config.appId,
+    onHit: (hit) => {
+      if (config.debug) {
+        logger.debug(`[im-qqbot-akane] wake hit: tier=${hit.tier} word=${hit.word} index=${hit.index}`);
+      }
+    },
+  });
   bot.use(mentionGate({
     requireMentionInGroup: config.requireMention,
+    ...(waker ? { isImplicitMention: (ctx: MiddlewareContext) => waker(ctx.message) } : {}),
   }));
 
   // 6. 内容清洗（去 @marker、表情标签、多余空白）

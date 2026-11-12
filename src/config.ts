@@ -85,6 +85,12 @@ export interface ImQQBotConfig {
   askTimeoutMs: number;
   /** 群历史缓冲条数 */
   historyLimit: number;
+  /** 隐式唤醒强词表（空 = 关闭隐式唤醒，行为与不配一致） */
+  wakeWords: string[];
+  /** 隐式唤醒弱词表（需呼格信号） */
+  wakeWordsWeak: string[];
+  /** 隐式唤醒排除片段 */
+  wakeWordExcludes: string[];
   /** 访问控制 */
   access: AccessControlConfig;
   /** 是否展示工具调用成功结果（工具错误始终展示） */
@@ -124,6 +130,9 @@ export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
   processingTimeoutMs: Schema.number().default(30 * 60 * 1000).description('处理超时(ms)，超时中断当前 LLM 调用'),
   askTimeoutMs: Schema.number().default(5 * 60 * 1000).description('待答问题超时(ms)，超时自动拒绝并提示'),
   historyLimit: Schema.number().default(10).description('群历史缓冲条数'),
+  wakeWords: Schema.array(Schema.string()).default([]).description('群聊隐式唤醒词（强词：独立成词即触发，命中即回）'),
+  wakeWordsWeak: Schema.array(Schema.string()).default([]).description('群聊隐式唤醒词（弱词：需句首/称呼标点/后接疑问等呼格信号）'),
+  wakeWordExcludes: Schema.array(Schema.string()).default([]).description('唤醒排除片段（熊猫/猫粮一类复合词，命中处不计）'),
   access: AccessControlSchema.default({
     c2cMode: 'open',
     c2cAllow: [],
