@@ -441,7 +441,7 @@ function UnboundView({ state }: { state: Extract<BindStateWire, { phase: 'waitin
       src: state.qrSvg, alt: 'QQ 扫码二维码', width: 220, height: 220, className: 'imqb-qr',
       onError: () => { setImgFailed(true); },
     }),
-    createElement('p', { className: 'imqb-title' }, '扫码绑定 QQ 机器人'),
+    createElement('p', { className: 'imqb-title' }, '扫码绑定 QQ 机器人（Akane 版）'),
     createElement('p', { className: 'imqb-hint' }, '使用手机 QQ 扫描二维码完成绑定'),
     createElement('a', { href: state.url, target: '_blank', rel: 'noreferrer noopener', className: 'imqb-link' }, '二维码显示异常？在浏览器中打开'),
     createElement('div', { className: 'imqb-row' },

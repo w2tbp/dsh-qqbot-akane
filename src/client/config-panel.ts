@@ -40,10 +40,19 @@ type ConfigWire = {
   directPrompt?: string;
   access?: AccessControlWire;
   cwd?: string;
+  personaGroupFile?: string;
+  personaDirectFile?: string;
+  personaLessonsDir?: string;
 };
 
 /** 样式注入标记（幂等） */
 const STYLE_ID = 'im-qqbot-akane-config-panel-styles';
+
+/** 界面身份标识：席位 id 已随 fork 改名，标题也要能一眼认出是哪个插件 */
+const PLUGIN_LABEL = 'QQ 机器人 · Akane';
+const PLUGIN_ID = 'im-qqbot-akane';
+const PLUGIN_PACKAGE = '@akane/dsh-qqbot';
+const PLUGIN_DATA_DIR = '~/.dsh-qqbot-akane';
 
 /** DSW 通用设置风格（settings-form / Switch / SegmentedControl 原语复刻） */
 function useConfigPanelStyles(): void {
@@ -144,6 +153,10 @@ function useConfigPanelStyles(): void {
 }
 /* cwd 只读行 */
 .imqb2-readonly { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--dsw-alias-label-secondary); word-break: break-all; margin: 0; }
+/* 身份抬头：本面板属于哪个插件（官方原版的 id 是 im-qqbot，容易混淆） */
+.imqb2-identity { display: flex; flex-direction: column; gap: 4px; padding: 0 0 14px; }
+.imqb2-identity-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.5; color: var(--dsw-alias-label-primary); }
+.imqb2-identity-meta { margin: 0; font-size: 12px; line-height: 1.6; color: var(--dsw-alias-label-tertiary); }
     `;
     document.head.appendChild(style);
     return () => { style.remove(); };
@@ -235,6 +248,16 @@ function SegmentedRow({ label, help, value, options, onChange }: {
   );
 }
 
+/** 只读行（label 左 + 等宽值右，用于文件路径这类不可编辑信息） */
+function ReadonlyRow({ label, value }: { label: string; value: string }): ReactNode {
+  return createElement('div', { className: 'imqb2-field' },
+    createElement('div', { className: 'imqb2-head' },
+      createElement('span', { className: 'imqb2-label' }, label),
+      createElement('p', { className: 'imqb2-readonly' }, value === '' ? '未配置（不注入）' : value),
+    ),
+  );
+}
+
 type AccessMode = AccessControlWire['c2cMode'];
 
 const MODE_OPTIONS: ReadonlyArray<{ value: AccessMode; label: string }> = [
@@ -246,6 +269,17 @@ const MODE_OPTIONS: ReadonlyArray<{ value: AccessMode; label: string }> = [
 /** 深比较（表单值与初始回显值的 dirty 判断） */
 function shallowEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** 身份抬头：与官方原版 im-qqbot 的界面区分开（设置栏目与主面板共用） */
+export function PluginIdentityHeader(): ReactNode {
+  return createElement('div', { className: 'imqb2-identity' },
+    createElement('p', { className: 'imqb2-identity-title' }, PLUGIN_LABEL),
+    createElement('p', { className: 'imqb2-identity-meta' },
+      `插件 id ${PLUGIN_ID} · 包 ${PLUGIN_PACKAGE} · 数据目录 ${PLUGIN_DATA_DIR}`),
+    createElement('p', { className: 'imqb2-identity-meta' },
+      '这是官方 dsh-qqbot（插件 id im-qqbot）的本地 fork：两者可共存，同一条凭据只应有一方启用。'),
+  );
 }
 
 /**
@@ -416,6 +450,15 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
       label: '私聊额外 system prompt', value: form.directPrompt ?? '',
       onChange: (v) => { patch('directPrompt', v); },
     }),
+
+    createElement('div', { className: 'imqb2-group-title' }, '人格文件（在本页之外编辑）'),
+    createElement(ReadonlyRow, { label: '群聊人格', value: form.personaGroupFile ?? '' }),
+    createElement(ReadonlyRow, { label: '私聊人格', value: form.personaDirectFile ?? '' }),
+    createElement(ReadonlyRow, { label: '课程目录', value: form.personaLessonsDir ?? '' }),
+    createElement('p', { className: 'imqb2-help' },
+      '这些是「她是谁、怎么说话」的正本，不在这里改：用编辑器直接改插件目录下的 Markdown 文件即可。'
+      + '相对路径按插件包根解析（也支持绝对路径与 ~/ 开头），按文件修改时间热加载——存盘后下一条消息生效，'
+      + '不用重启、也不用点保存。上面的路径为空表示该份人格未启用。'),
 
     form.cwd !== undefined
       ? createElement('div', { className: 'imqb2-field' },

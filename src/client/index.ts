@@ -16,7 +16,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { createElement, type ReactNode } from 'react';
 import { BIND_STATE_PATH } from '../shared/bind-protocol.ts';
 import { BindPanelBody, useBindState, QQ_BOT_LOGO_PATH, installPanelStyles } from './bind-page.ts';
-import { ConfigPanel } from './config-panel.ts';
+import { ConfigPanel, PluginIdentityHeader } from './config-panel.ts';
 
 export const name = 'im-qqbot-akane-client';
 export const inject = ['slots', 'sidebarRight', 'sidebarRightTabs'];
@@ -83,6 +83,7 @@ function BindGuideIcon(): ReactNode {
 function QQBotSettingsSection(): ReactNode {
   const { state, gone, recheck } = useBindState();
   return createElement('div', null,
+    createElement(PluginIdentityHeader),
     createElement(BindPanelBody, { state, gone, recheck }),
     createElement(ConfigPanel, { bindPhase: state?.phase }),
   );
@@ -130,7 +131,7 @@ export function apply(ctx: Context): void {
   // 1. 设置页「QQ Bot」栏目（主展示位：注册即展示，无时序依赖）
   if (slots !== undefined) {
     disposers.push(    slots.inject('settings.section', () => slots.register(
-      { name: 'settings.section', id: 'qqbot-akane', order: 7, label: 'QQ 机器人' },
+      { name: 'settings.section', id: 'qqbot-akane', order: 7, label: 'QQ 机器人 · Akane' },
       QQBotSettingsSection,
     )));
   }
@@ -140,12 +141,12 @@ export function apply(ctx: Context): void {
     disposers.push(tabs.register({
       id: TAB_ID,
       kind: TAB_KIND,
-      title: () => 'QQ 机器人绑定',
+      title: () => 'QQ 机器人 · Akane 绑定',
       guide: [{
         id: 'bind',
         order: 90,
-        title: () => 'QQ 机器人绑定',
-        description: () => '扫码或手动填写，绑定 QQ 机器人',
+        title: () => 'QQ 机器人 · Akane 绑定',
+        description: () => '扫码或手动填写，绑定 Akane 版 QQ 机器人',
         icon: BindGuideIcon,
       }],
     }));
@@ -186,7 +187,7 @@ export function apply(ctx: Context): void {
       const stopSidebar = pageSlots.inject('sidebar.panellist', () => pageSlots.register(
         {
           name: 'sidebar.panellist', id: IM_MAIN_PANEL_ID,
-          order: 10, label: 'QQ 机器人',
+          order: 10, label: 'QQ 机器人 · Akane',
         },
         QqBotSidebarIcon,
       ));
