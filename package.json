@@ -1,6 +1,6 @@
 {
   "name": "@akane/dsh-qqbot",
-  "version": "0.5.5+akane.1",
+  "version": "0.5.5+akane.2",
   "icon": "./assets/icons/qq_logo.svg",
   "description": "dsh-qqbot 的本地 fork：群聊唤醒词触发 + persona 迁入插件。 Chat with DeepSeek Harness in QQ private and group chats.",
   "type": "module",

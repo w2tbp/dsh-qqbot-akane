@@ -6,6 +6,29 @@ This file records significant dsh-qqbot updates from a product perspective, focu
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.5.5+akane.2] - 2026-11-13
+
+Everything added since `0.5.5+akane.1`: wake words in the settings page, the meme/sticker capability, a group-form fix, and one wake-word boundary fix.
+
+### Added
+
+- **Wake words are now editable in the settings page**: `wakeWords` / `wakeWordsWeak` / `wakeWordExcludes` used to require hand-editing YAML. They now live in a "群聊唤醒词" group, one word per line. Each entry is trimmed, empties dropped, duplicates removed in original order; max 20 characters per word and 100 entries per table (word lists get compiled into regular expressions, so the UI must not expose an arbitrarily large matching surface). A non-array value or a non-text entry returns a Chinese `TypeError` instead of silently persisting. Saves land in the fork entry of the profile, so from then on the UI is the source of truth for the word lists.
+- **Meme/sticker replies, with zero new code**: inbound images already land in the data directory (extension corrected by magic bytes), absolute paths already reach the envelope, she can look at images, and both outbound paths (`akane_send_file` and `present`) deliver them. The workflow is documented as the `akane-sticker` skill: a `workspace/stickers/` library plus `INDEX.md` with one line per image, and "when to attach a meme" written into the skill description and body. Attachment frequency stays a soft constraint enforced by her own judgement — no cooldown or quota gate this round.
+- **The settings page now says which plugin a panel belongs to**, and the persona path is shown read-only.
+
+### Changed
+
+- **No more one-to-one address in groups**: she no longer uses a form of address that only holds for a single person when speaking in a group.
+
+### Fixed
+
+- **A Latin wake word followed directly by Chinese no longer misses**: both adjacency guards used to treat a Han character as "part of a longer token", so the most natural way of calling her in the wild — `akane说话`, `akane你还知道…` — was silently dropped while `akane 说话` and `akane，说话` worked. The two guards are now deliberately asymmetric: the right guard only forbids ASCII letters/digits/underscore, while the left guard stays conservative so statements *about* her (`我叫akane`, `喜欢akane的人`, `她的akane怎么办`) still do not fire, with a single exception for sentence-final particles (`真的吗akane`, `冲啊akane` now hit). The price is that `akane真可爱` — talking about her at the start of a sentence — now fires too. `对不对akane`, where a content word is glued straight onto the name, intentionally stays unmatched: lexical boundaries cannot separate it. CJK words, the weak-word vocative rule, the exclusion table and the masking logic are untouched.
+- **Builds no longer dirty `lib/client.js.map`**: the artifact was meant to be gitignored but was tracked, so every build showed one change. It is now untracked (the file stays on disk).
+
+### Documentation
+
+- Two installation traps recorded: a same-id entry in the profile shadows the bundle patch's `insert`, so a fork entry must spell everything out (word lists / persona / `access`) rather than relying on a merge; and skill backup directories must live outside `$DSH_HOME/skills`, otherwise the host reads a backup as a second skill with the same name.
+
 ## [0.5.5+akane.1] - 2026-11-12
 
 This fork is based on `@tencent-connect/dsh-qqbot@0.5.5`. Four behavioral changes plus a full identity rename, so it can coexist with the original in the same profile.
