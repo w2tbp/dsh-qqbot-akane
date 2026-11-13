@@ -74,6 +74,34 @@ describe('R1 唤醒词：不命中', () => {
   });
 });
 
+describe('R1 唤醒词：拉丁词两道守卫不对称', () => {
+  // 右界放宽：名字后面直接粘汉字，是中文群里喊人最正常的写法（现网实测漏过的就是这一类）
+  it.each([
+    'akane说话',
+    'akane你还知道不断地洗澡啊',
+    'akane生成一张图片',
+    'akane真可爱',
+    '真的吗akane',
+    '冲啊akane',
+    '行吧akane',
+    '对吗？akane',
+  ])('%s → 回', (text) => {
+    expect(hit(text)).toBe(true);
+  });
+
+  // 左界仍然保守：实义汉字挨着名字就当成在说她，不挡就会见名字就插嘴
+  it.each([
+    '对不对akane',
+    '我喜欢akane',
+    '她的akane怎么办',
+    '我觉得akane说得对',
+    'akaneakane',
+    'akane123',
+  ])('%s → 不回', (text) => {
+    expect(hit(text)).toBe(false);
+  });
+});
+
 describe('R1 唤醒词：强弱分级', () => {
   it('强词独立成词即命中，不需要呼格信号', () => {
     expect(tierOf('猫娘 今天天气不错')).toBe('strong');
