@@ -6,6 +6,25 @@ This file records significant dsh-qqbot updates from a product perspective, focu
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [0.5.5+akane.3] - 2026-11-14
+
+Everything added since `0.5.5+akane.2`: images that pass through group history are finally visible to her.
+
+### Added
+
+- **Group history now carries attachments**: fixes "she can see an image when she is @-mentioned or quoted, but the same image disappears once it goes into group history". The root cause was on the rendering side — the SDK's history entries have a text slot and nothing else, so an image-only message became an empty line behind a sender label. The plugin now ships its own `akaneHistoryBuffer` (still mounted before the mention gate, so non-@ messages keep being recorded), keeps attachment metadata in the entry, and strips `<face>` tag noise out of the historical copy of the text.
+- **Download at record time**: an image appearing in a group is fetched **the moment it enters history** rather than gambling on how long QQ's signed URL stays valid (the official docs state no expiry, and there is no endpoint to re-sign it). Downloads run fire-and-forget on a serial chain, so nobody can turn the process into a downloader and she never waits for it. Nothing is fetched for hard-blocked senders, for her own messages, or for video/file attachments; turning `media.enabled` off disables the whole path.
+- **Dedup and a daily cap**: one in-process ledger is the only answer to "is this image already on disk" (QQ hands down filenames that are themselves content MD5s, which is what equality is judged on). The same meme reposted is stored once; each group gets 20 proactive downloads per day, beyond which only a label is kept. Her current message, quoted message and group history share the same ledger, so a single image no longer shows up under two paths.
+- **How history attachments read**: a history line is followed by `└ Image: <local path>`, at most 4 paths per turn, allocated newest-first (the freshest image is the one she is most likely to be asked about); anything without a path degrades to `[图片]` / `[视频]` / `[file: name (size)]`. Signed URLs never enter the context at all, and a file already reclaimed by the TTL is detected at render time instead of being handed out as a live path — a dead path would surface as a tool error delivered straight to QQ.
+
+### Changed
+
+- **Wider inbound download scope**: group images went from "only messages that trigger her" to "every image in the group, with dedup and a per-group daily cap". Retention is still 24 hours, measured by file mtime with cleanup running hourly, so files disappear somewhere between 24 and 25 hours. Worst case is roughly 20 new images per group per day.
+
+### Documentation
+
+- README brought in line: the fork capability list, a new "群历史图片" subsection under rich media, and the module tree now includes the history store and the media ledger.
+
 ## [0.5.5+akane.2] - 2026-11-13
 
 Everything added since `0.5.5+akane.1`: wake words in the settings page, the meme/sticker capability, a group-form fix, and one wake-word boundary fix.
