@@ -16,7 +16,6 @@ import {
   concurrencyGuard,
   typingIndicator,
   quoteRef,
-  historyBuffer,
   envelopeFormatter,
 } from '@tencent-connect/qqbot-nodejs';
 import type { ImQQBotConfig } from '../config.ts';
@@ -24,8 +23,10 @@ import type { SessionManager } from '../session/index.ts';
 import type { Logger } from '../types.ts';
 import { buildCommandList } from '../commands/index.ts';
 import { attachmentProcessor } from '../middleware/attachment.ts';
+import { akaneHistoryBuffer } from '../middleware/history-buffer.ts';
 import { questionAnswer } from '../middleware/question-answer.ts';
 import { getHistoryStore, historyGroupKey } from '../features/history-store.ts';
+import { getMediaLedger } from '../features/media-ledger.ts';
 import { createWaker } from '../wake.ts';
 
 /**
@@ -76,12 +77,15 @@ export function setupMiddlewares(
   // 3. 访问控制（空名单 = 拒绝所有人，fail-closed）
   bot.use(accessPolicy(buildAccessPolicy(config, logger)));
 
-  // 4. 群历史缓冲 — 放在门控之前，确保所有消息（含未 @bot）都计入上下文
-  //    store 走共享单例（getHistoryStore），groupKey 带 appId 前缀，供回复后清空
-  bot.use(historyBuffer({
+  // 4. 群历史缓冲 + 记录时落盘 — 放在门控之前，确保所有消息（含未 @bot）都计入上下文
+  //    自建而不用 SDK 的 historyBuffer：它的条目只有文本位，群里的图片进历史就只剩空行。
+  //    store/ledger 都走共享单例（回复后清历史、跨链路复用同一张图的落盘结果）
+  bot.use(akaneHistoryBuffer({
     limit: config.historyLimit,
     store: getHistoryStore(),
-    recordOnSkip: true,
+    media: config.media,
+    ledger: getMediaLedger(),
+    logger,
     groupKey: (ctx) => {
       const gid = ctx.message.groupOpenid;
       if (ctx.message.kind !== 'group' || !gid) return undefined;

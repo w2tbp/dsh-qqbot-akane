@@ -20,6 +20,8 @@ import {
   type MediaKind,
 } from './attachment.ts';
 import { clearGroupHistory } from '../features/history-store.ts';
+import type { HistoryAttachment, HistoryEntry } from '../features/history-store.ts';
+import { getMediaLedger } from '../features/media-ledger.ts';
 import type { MiddlewareContext } from '@tencent-connect/qqbot-nodejs';
 
 // ── 类型定义 ──
@@ -42,14 +44,6 @@ export interface ResolvedQuote {
   text?: string;
   entry?: { senderId?: string; content?: string };
   attachments?: QuotedAttachment[];
-}
-
-export interface HistoryEntry {
-  senderId: string;
-  senderName?: string;
-  content: string;
-  timestamp: number;
-  messageId: string;
 }
 
 export interface MentionState {
@@ -346,7 +340,37 @@ function renderMediaLine(
 }
 
 /**
+ * 每轮组装里最多带几个历史图片路径。
+ * 只读图就要花掉一次工具调用，全部给出去既挤占正文也没人看图。
+ */
+const MAX_HISTORY_IMAGE_PATHS = 4;
+
+/** 历史附件行的缩进（挂在消息行下面，一眼看出这张图属于哪句话） */
+const HISTORY_MEDIA_INDENT = '        └ ';
+
+/**
+ * 历史里一条附件的渲染。
+ * 没有本地路径时**不给 URL**：她打不开远程链接，把签名地址写进上下文只是污染。
+ */
+function renderHistoryAttachmentLine(att: HistoryAttachment, localPath: string | undefined): string {
+  const kind = classifyContentType(att.contentType);
+  if (kind !== 'voice' && localPath) {
+    return `${HISTORY_MEDIA_INDENT}${renderMediaLine(kind, att.filename, localPath, undefined, att.size)}`;
+  }
+  switch (kind) {
+    case 'image': return `${HISTORY_MEDIA_INDENT}[图片]`;
+    case 'video': return `${HISTORY_MEDIA_INDENT}[视频]`;
+    case 'file':
+      return `${HISTORY_MEDIA_INDENT}[文件: ${att.filename || 'file'}${att.size ? ` (${formatFileSize(att.size)})` : ''}]`;
+    case 'voice': return `${HISTORY_MEDIA_INDENT}[语音]`; // 进不了历史元数据，只为穷尽 MediaKind
+  }
+}
+
+/**
  * Layer 5: 最终 agentBody 拼合
+ *
+ * 历史条目带附件元数据，但落盘路径不在条目里 —— 现问账本，
+ * 这样 TTL 清理掉的文件不会被当成有效路径递给她（她点开就是工具报错，报错会原样发上 QQ）。
  */
 function buildAgentBody(
   base: string,
@@ -358,9 +382,31 @@ function buildAgentBody(
     return base;
   }
 
-  const historyLines = history.map(h => {
-    const name = h.senderName ?? shortSenderId(h.senderId);
-    return `[${name} (${h.senderId})] ${h.content}`;
+  const ledger = getMediaLedger();
+  const perEntry = history.map(h => h.attachments ?? []);
+
+  // 从最新往回分配额度：越新的图越可能是她接下来要被问的那张。
+  // 键是附件对象本身，一次组装内每个附件只出现一回，不必维护平行下标。
+  const withPath = new Map<HistoryAttachment, string>();
+  for (let i = perEntry.length - 1; i >= 0; i--) {
+    const atts = perEntry[i] ?? [];
+    for (let j = atts.length - 1; j >= 0; j--) {
+      if (withPath.size >= MAX_HISTORY_IMAGE_PATHS) break;
+      const att = atts[j];
+      if (!att) continue;
+      const path = ledger.resolve(att);
+      if (path) withPath.set(att, path);
+    }
+  }
+
+  const historyLines: string[] = [];
+  perEntry.forEach((atts, i) => {
+    const entry = history[i];
+    if (!entry) return;
+    const name = entry.senderName ?? shortSenderId(entry.senderId);
+    // 纯图片消息正文为空，不 trimEnd 会留一条尾巴空白的行 —— 正是这次要修的病灶
+    historyLines.push(`[${name} (${entry.senderId})] ${entry.content}`.trimEnd());
+    for (const att of atts) historyLines.push(renderHistoryAttachmentLine(att, withPath.get(att)));
   });
 
   return [

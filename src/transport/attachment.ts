@@ -12,6 +12,7 @@ import { randomBytes } from 'node:crypto';
 import * as dns from 'node:dns';
 import type { Logger, RawAttachment } from '../types.ts';
 import type { MediaConfig } from '../config.ts';
+import type { MediaLedger } from '../features/media-ledger.ts';
 import { MEDIA_ROOT } from '../media/media-cleaner.ts';
 
 /** 默认富媒体下载大小上限（MB），可被 media.maxMB 覆盖 */
@@ -179,11 +180,16 @@ async function download(url: string, maxBytes: number): Promise<Buffer> {
  *
  * 下载目录固定为 ~/.dsh-qqbot-akane/media，文件名用时间戳+随机数防重名。
  * 下载失败不阻断（由调用方回退描述）。
+ *
+ * 传入 ledger 时按「同一张图」去重：已落盘的直接复用路径，正在下的合并成一次请求。
+ * 群历史和当前消息两条链路会碰到同一张梗图，不去重就是两次下载、两个文件、
+ * 她上下文里两个不同路径。
  */
 export async function downloadMediaAttachments(
   attachments: RawAttachment[] | undefined,
   media: MediaConfig,
   logger: Logger,
+  ledger?: MediaLedger,
 ): Promise<DownloadedFile[]> {
   if (!media.enabled) return [];
 
@@ -199,25 +205,32 @@ export async function downloadMediaAttachments(
   const results: DownloadedFile[] = [];
   for (const att of targets) {
     const contentType = classifyContentType(att.content_type) as 'image' | 'video' | 'file';
-    const destPath = toPosixPath(join(MEDIA_ROOT, uniqueFilename(att.filename)));
 
     if (att.size > maxBytes) {
       logger.debug(`im-qqbot-akane: skip download (${att.size}B too large): ${att.filename}`);
       continue; // 超限不下载，由 buildDynamicCtx 回退为描述
     }
 
-    let buf: Buffer;
-    try {
-      buf = await download(att.url, maxBytes);
-    } catch (err) {
-      logger.warn(`im-qqbot-akane: download failed: ${att.filename} — ${err instanceof Error ? err.message : String(err)}`);
-      continue; // 下载失败不加入结果，由 buildDynamicCtx 回退为描述
-    }
+    const runDownload = async (): Promise<string | undefined> => {
+      const destPath = toPosixPath(join(MEDIA_ROOT, uniqueFilename(att.filename)));
+      let buf: Buffer;
+      try {
+        buf = await download(att.url, maxBytes);
+      } catch (err) {
+        logger.warn(`im-qqbot-akane: download failed: ${att.filename} — ${err instanceof Error ? err.message : String(err)}`);
+        return undefined; // 下载失败不加入结果，由 buildDynamicCtx 回退为描述
+      }
+      // 图片按真实格式校正扩展名（QQ 的 content_type 不可信），落盘到最终路径
+      const written = contentType === 'image' ? toPosixPath(correctImageExt(destPath, buf)) : destPath;
+      writeFileSync(written, buf);
+      logger.debug(`im-qqbot-akane: attachment downloaded: ${att.filename} (${formatSize(buf.length)}) → ${written}`);
+      return written;
+    };
 
-    // 图片按真实格式校正扩展名（QQ 的 content_type 不可信），落盘到最终路径
-    const localPath = contentType === 'image' ? toPosixPath(correctImageExt(destPath, buf)) : destPath;
-    writeFileSync(localPath, buf);
-    logger.debug(`im-qqbot-akane: attachment downloaded: ${att.filename} (${formatSize(buf.length)}) → ${localPath}`);
+    const localPath = ledger
+      ? await ledger.fetch({ filename: att.filename, size: att.size, url: att.url }, runDownload)
+      : await runDownload();
+    if (!localPath) continue;
 
     results.push({ filename: att.filename, contentType, localPath });
   }
