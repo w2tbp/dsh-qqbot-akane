@@ -50,7 +50,7 @@ export function versionCommand({ manager }: CommandDeps): CategorizedCommand {
     handler: () => {
       const current = manager.getEffectiveModel('c2c', '');
       const modelInfo = current ? `${current.provider}/${current.model}` : '宿主默认';
-      return `dsh-qqbot v${PLUGIN_VERSION} | model: ${modelInfo}`;
+      return `dsh-qqbot-akane v${PLUGIN_VERSION} | model: ${modelInfo}`;
     },
   };
 }

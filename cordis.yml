@@ -1,4 +1,4 @@
-# dsh-im-qqbot-akane 组合配置示例
+# dsh-qqbot-akane 组合配置示例
 #
 # 运行: pnpm dsh --config ./cordis.yml
 #
@@ -94,7 +94,7 @@
 
 # ── QQ Bot IM 驱动 ──
 - id: im-qqbot-akane
-  name: '@akane/dsh-qqbot'
+  name: 'dsh-qqbot-akane'
   config:
     appId: ${QQBOT_APPID}
     appSecret: ${QQBOT_SECRET}

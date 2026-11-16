@@ -29,8 +29,11 @@ This repo is a local fork of `@tencent-connect/dsh-qqbot@0.5.5`. Only triggering
 
 | Identity slot | Original | This fork |
 |---|---|---|
-| npm package | `@tencent-connect/dsh-qqbot` | `@akane/dsh-qqbot` |
+| npm package | `@tencent-connect/dsh-qqbot` | `dsh-qqbot-akane` |
 | plugin id | `im-qqbot` | `im-qqbot-akane` |
+| plugins page title | `QQ Bot (dsh-qqbot)` | `QQ Bot · Akane` |
+| settings section | "QQ Bot" | "QQ Bot · Akane" |
+| icon | `assets/icons/qq_logo.svg` | `assets/icons/akane_qqbot.svg` |
 | data dir | `~/.dsh-qqbot` | `~/.dsh-qqbot-akane` |
 | bind routes | `/qqbot/im-qqbot/*` | `/qqbot/im-qqbot-akane/*` |
 | vision / send-file tools | `qqbot_describe_image` / `qqbot_send_file` | `akane_describe_image` / `akane_send_file` |

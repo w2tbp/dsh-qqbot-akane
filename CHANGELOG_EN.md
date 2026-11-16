@@ -2,9 +2,31 @@
 
 > [简体中文](./CHANGELOG.md)
 
-This file records significant dsh-qqbot updates from a product perspective, focusing on user-visible changes.
+This file records significant dsh-qqbot-akane updates from a product perspective, focusing on user-visible changes.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+
+## [0.5.5__0.1] - 2026-11-16
+
+Identity is now fully separate from the official `@tencent-connect/dsh-qqbot`. Previously only the plugin id, routes and tool names diverged; the package name and display metadata were still copied verbatim, so the plugins page showed two entries with the same title, same icon and same description — indistinguishable from one plugin.
+
+### Changed
+
+- **npm package**: `@akane/dsh-qqbot` → `dsh-qqbot-akane` (follows the GitHub repo name). The host sorts by short name (scope and `dsh-` prefix stripped), so the old name collapsed to `qqbot` just like the official one and they sat adjacent; the new one sorts as `qqbot-akane`.
+- **Plugins page title and blurb**: `meta.title` in `locale/zh.json` / `locale/en.json` is now "QQ 机器人 · Akane" / "QQ Bot · Akane", and the description lists this fork's four behaviours. Both were byte-identical to upstream, and `meta.title` outranks the package name when rendering.
+- **Icon**: new `assets/icons/akane_qqbot.svg` (cyan, cat ears) instead of the official `qq_logo.svg` — the two files used to share an md5.
+- **package.json points at the fork**: `description` / `repository` / `homepage` / `bugs` now reference `github.com/w2tbp/dsh-qqbot-akane` rather than the upstream repo.
+- **In-QQ footer**: `/bot-version` and `/bot-help` report `dsh-qqbot-akane v…` instead of `dsh-qqbot v…`.
+
+### Migration
+
+- Renaming the package means renaming it in the profile too: the `dependencies` key, the `dsh.profile.bundles` entry and the `node_modules` link. Restart the process afterwards — title and icon are read into plugin meta at boot, hot reload will not refresh them.
+- **Plugin id `im-qqbot-akane`, data dir `~/.dsh-qqbot-akane` and routes `/qqbot/im-qqbot-akane/*` are untouched**: credentials, the three wake-word tables, persona files, group history and the media ledger all carry over without reconfiguration.
+- Verified on the real host 2026-11-16: after restart the plugins page shows "QQ Bot · Akane" with the new cyan icon, the load self-check reports `- id: im-qqbot-akane / name: dsh-qqbot-akane`, and the profile reverse-lookup that receives persisted credentials still resolves.
+
+### Version scheme
+
+From this release the fork ordinal is separated with `__`: `<upstream>__<fork ordinal>` (this one is `0.5.5__0.1`), replacing the previous `0.5.5+akane.N` form.
 
 ## [0.5.5+akane.3] - 2026-11-14
 

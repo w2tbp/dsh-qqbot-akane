@@ -29,8 +29,11 @@
 
 | 身份位 | 原版 | 本 fork |
 |---|---|---|
-| npm 包名 | `@tencent-connect/dsh-qqbot` | `@akane/dsh-qqbot` |
+| npm 包名 | `@tencent-connect/dsh-qqbot` | `dsh-qqbot-akane` |
 | 插件 id | `im-qqbot` | `im-qqbot-akane` |
+| 插件管理页标题 | `QQ 机器人 (dsh-qqbot)` | `QQ 机器人 · Akane` |
+| 设置页栏目 | 「QQ 机器人」 | 「QQ 机器人 · Akane」 |
+| 图标 | `assets/icons/qq_logo.svg` | `assets/icons/akane_qqbot.svg` |
 | 数据目录 | `~/.dsh-qqbot` | `~/.dsh-qqbot-akane` |
 | 绑定路由 | `/qqbot/im-qqbot/*` | `/qqbot/im-qqbot-akane/*` |
 | 视觉 / 发文件工具 | `qqbot_describe_image` / `qqbot_send_file` | `akane_describe_image` / `akane_send_file` |

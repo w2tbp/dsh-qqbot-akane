@@ -2,9 +2,31 @@
 
 > [English](./CHANGELOG_EN.md)
 
-本文件从产品视角记录 dsh-qqbot 的重要更新，聚焦用户可感知的变化。
+本文件从产品视角记录 dsh-qqbot-akane 的重要更新，聚焦用户可感知的变化。
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
+
+## [0.5.5__0.1] - 2026-11-16
+
+把身份和官方 `@tencent-connect/dsh-qqbot` 彻底分开。此前只有插件 id、路由、工具名分开了，包名与展示元数据仍照抄官方——插件管理页里两条同名、同图、同描述的记录看起来就是同一个插件。
+
+### 变更
+
+- **npm 包名**：`@akane/dsh-qqbot` → `dsh-qqbot-akane`（跟随 GitHub 仓库名）。宿主列表按短名排序（去掉 scope 与 `dsh-` 前缀），旧名与官方都缩成 `qqbot` 因而紧邻；新名缩成 `qqbot-akane`。
+- **插件管理页标题与简介**：`locale/zh.json` / `locale/en.json` 的 `meta.title` 改为「QQ 机器人 · Akane」/「QQ Bot · Akane」，简介改成本 fork 的四项能力。此前与官方逐字节相同，而 `meta.title` 的显示优先级高于包名。
+- **图标**：新增 `assets/icons/akane_qqbot.svg`（青色猫耳），不再复用官方 `qq_logo.svg`（两文件原本 md5 相同）。
+- **package.json 归位**：`description` / `repository` / `homepage` / `bugs` 指向 `github.com/w2tbp/dsh-qqbot-akane`，不再指向官方仓库。
+- **QQ 内落款**：`/bot-version` 与 `/bot-help` 的 `dsh-qqbot v…` → `dsh-qqbot-akane v…`。
+
+### 迁移
+
+- 换包名要同步 profile：`dependencies` 的键、`dsh.profile.bundles` 条目、`node_modules` 里的链接，改完重启进程生效（标题与图标是启动时读进插件 meta 的，热重载不会更新）。
+- **插件 id `im-qqbot-akane`、数据目录 `~/.dsh-qqbot-akane`、路由 `/qqbot/im-qqbot-akane/*` 全部未动**：凭据、三张唤醒词表、persona 文件、群历史与媒体账本都不需要重配。
+- 11-16 已实机验证：重启后插件管理页显示「QQ 机器人 · Akane」与青色新图标，装载自检 `- id: im-qqbot-akane / name: dsh-qqbot-akane` 通过，凭据落盘的 profile 反查路径未断。
+
+### 版本号格式
+
+自本版起 fork 序号改用 `__` 分隔：`<上游版本>__<fork 序号>`（本版 `0.5.5__0.1`），取代此前的 `0.5.5+akane.N` 写法。
 
 ## [0.5.5+akane.3] - 2026-11-14
 

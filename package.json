@@ -1,8 +1,8 @@
 {
-  "name": "@akane/dsh-qqbot",
-  "version": "0.5.5+akane.3",
-  "icon": "./assets/icons/qq_logo.svg",
-  "description": "dsh-qqbot 的本地 fork：群聊唤醒词触发 + persona 迁入插件。 Chat with DeepSeek Harness in QQ private and group chats.",
+  "name": "dsh-qqbot-akane",
+  "version": "0.5.5__0.1",
+  "icon": "./assets/icons/akane_qqbot.svg",
+  "description": "akane 的 QQ 机器人：群聊两级唤醒词、persona 文件热加载、黑名单硬拦截、群历史带图片。fork 自 @tencent-connect/dsh-qqbot 0.5.5，身份与界面独立。",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
@@ -37,7 +37,8 @@
     "cordis",
     "plugin",
     "chatbot",
-    "im"
+    "im",
+    "akane"
   ],
   "license": "MIT",
   "engines": {
@@ -45,11 +46,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/tencent-connect/dsh-qqbot.git"
+    "url": "https://github.com/w2tbp/dsh-qqbot-akane.git"
   },
-  "homepage": "https://github.com/tencent-connect/dsh-qqbot#readme",
+  "homepage": "https://github.com/w2tbp/dsh-qqbot-akane#readme",
   "bugs": {
-    "url": "https://github.com/tencent-connect/dsh-qqbot/issues"
+    "url": "https://github.com/w2tbp/dsh-qqbot-akane/issues"
   },
   "dsh": {
     "bundle": {

@@ -54,7 +54,7 @@ const STYLE_ID = 'im-qqbot-akane-config-panel-styles';
 /** 界面身份标识：席位 id 已随 fork 改名，标题也要能一眼认出是哪个插件 */
 const PLUGIN_LABEL = 'QQ 机器人 · Akane';
 const PLUGIN_ID = 'im-qqbot-akane';
-const PLUGIN_PACKAGE = '@akane/dsh-qqbot';
+const PLUGIN_PACKAGE = 'dsh-qqbot-akane';
 const PLUGIN_DATA_DIR = '~/.dsh-qqbot-akane';
 
 /** DSW 通用设置风格（settings-form / Switch / SegmentedControl 原语复刻） */
@@ -284,7 +284,7 @@ export function PluginIdentityHeader(): ReactNode {
     createElement('p', { className: 'imqb2-identity-meta' },
       `插件 id ${PLUGIN_ID} · 包 ${PLUGIN_PACKAGE} · 数据目录 ${PLUGIN_DATA_DIR}`),
     createElement('p', { className: 'imqb2-identity-meta' },
-      '这是官方 dsh-qqbot（插件 id im-qqbot）的本地 fork：两者可共存，同一条凭据只应有一方启用。'),
+      '这是 @tencent-connect/dsh-qqbot（插件 id im-qqbot）的本地 fork：两者可共存，同一条凭据只应有一方启用。'),
   );
 }
 

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "QQ Bot (dsh-qqbot)",
-    "description": "Chat with DeepSeek Harness in QQ private and group chats."
+    "title": "QQ Bot · Akane",
+    "description": "akane's QQ bot: wake-word triggering in groups, hot-reloaded persona files, hard blacklist, and group history that carries images."
   }
 }

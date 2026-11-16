@@ -88,7 +88,7 @@ function findProfileBySymlink(baseDir: string): string | null {
     return null;
   }
   const match = (name: string): string | null => {
-    const linked = resolve(profilesRoot, name, 'node_modules', '@akane', 'dsh-qqbot');
+    const linked = resolve(profilesRoot, name, 'node_modules', 'dsh-qqbot-akane');
     try {
       return realpathSync(linked) === realBase ? resolve(profilesRoot, name) : null;
     } catch {

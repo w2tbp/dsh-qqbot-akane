@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "QQ 机器人 (dsh-qqbot)",
-    "description": "在 QQ 私聊和群聊里直接对话 DeepSeek Harness。"
+    "title": "QQ 机器人 · Akane",
+    "description": "akane 的 QQ 机器人：群聊唤醒词触发、persona 文件热加载、黑名单硬拦截、群历史带图片。"
   }
 }
