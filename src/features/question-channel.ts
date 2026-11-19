@@ -174,6 +174,13 @@ export class QuestionChannel {
     entry.reject(new QuestionChannelError('ask_user_question was cancelled before the user answered', ASK_ABORTED));
   }
 
+  /** 只读判定：这个会话有没有待答问题。不消费答案 —— 静默窗口据此放行答案消息 */
+  public hasPending(scope: ChatScope, peerId: string): boolean {
+    const record = this.manager.getSessionRecord(scope, peerId);
+    if (!record) return false;
+    return this.pending.has(record.sessionKey);
+  }
+
   /** 入站文本作答：该会话若有待答问题且本条消息有文本，解析为答案并推进 */
   public tryAnswer(scope: ChatScope, peerId: string, text: string): boolean {
     const record = this.manager.getSessionRecord(scope, peerId);
