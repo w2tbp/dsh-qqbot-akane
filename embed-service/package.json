@@ -1,0 +1,20 @@
+{
+  "name": "akane-embed-service",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "本机常驻 bge-small-zh-v1.5 embedding 微服务（只绑 127.0.0.1）—— akane 记忆库语义档的运行时",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "setup": "bash install.sh",
+    "start": "node server.mjs",
+    "selftest": "node selftest.mjs",
+    "verify:tokenizer": "node verify-tokenizer.mjs"
+  },
+  "dependencies": {
+    "@huggingface/tokenizers": "0.2.0",
+    "onnxruntime-web": "1.17.3"
+  }
+}
