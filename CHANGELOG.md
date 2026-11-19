@@ -19,6 +19,11 @@
 - **分词换成官方纯 JS 实现并与 HF 参考对拍**：此前手写的 WordPiece 在同一批 349 条里错 202 条（ASCII 标点、英文大小写、空白、码点 >64k 全错）。对拍守卫 `embed-service/verify-tokenizer.mjs` 是整条语义档的地基，换模型/升级依赖都得先跑它。
 - **设置页「碎片静默窗口」分组**：`quietWindowMs` / `quietWindowEmptyShellMs` / `quietWindowMaxWaitMs` / `quietWindowMaxFragments` 四栏在界面上直接改，每栏实时把毫秒翻成秒显示，保存写入 profile 的本插件条目并热重载——不用手改 YAML、不用重启进程。四栏都由配置的默认值预填，**清空某一栏会被当场拦下**（要关就填 0），免得一次误删悄悄丢掉一栏。
 
+### 修复
+
+- **一条长消息能让整轮回填原地打转**。记忆库第一跳在现网就撞上了：超过 512 token 的 chunk 把 Bert 的位置编码撑爆，而 `onnxruntime-web` 的 WASM 后端抛的是**原生异常**（日志只剩 `embed FAILED 56751936` 这种数字指针，连错误文本都没有），服务回 500、插件侧游标不推进 ⇒ 每 10 分钟在同一批上重撞一次。根因是推理内核**根本没截断**：官方纯 JS 分词的 `EncodeOptions` 只有 `text_pair` / `add_special_tokens` / `return_token_type_ids` 三个键，压根没有 `max_length` / `truncation` 可传。现在 `embed()` 按 `tokenizer_config.json` 的 `model_max_length` 右侧截断、保住 `[CLS] … [SEP]`（分词对拍通路不动，改完复跑仍 349 条 0 错）。不是边角 case：她那 5 份转录的 616 条消息里 **35 条（5.7%）超 512 token**，最长一条 10697 字。**这条要求重启常驻 embedding 服务才生效**（服务进程不热加载自己）。
+- **每批条数跟着改小，否则只是把失败换成超时**。截断修好后实测满 512 token 宽约 **625ms/行**（1 行 759ms / 4 行 2525ms / 8 行 4996ms / 16 行 9989ms，q8 单线程），而一批 16 条长文要 10 秒、必然超过 `memory.timeoutMs`（默认 8000，客户端用 `AbortSignal.timeout` 掐）。`EMBED_BATCH` 因此 16 → **8**，把最坏情况压到 5 秒；算力由逐行推理主导，批次减半几乎不影响总耗时。**这条要重启 `dsh web` 才生效。**
+
 ### 说明
 
 - **召回这件事的能力上限在转录里，不在检索里**：没点她名、也没被她那一轮拼进上下文的话，正本里就没有，任何检索都变不出来。记忆库解决「有但搜不到 / 搜不准」，不解决「根本没存」。

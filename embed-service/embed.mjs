@@ -39,7 +39,9 @@ export async function loadModel(modelDir = process.env.AKANE_EMBED_MODEL_DIR || 
     }
   }
 
-  const tokenizer = new Tokenizer(readJson(modelDir, 'tokenizer.json'), readJson(modelDir, 'tokenizer_config.json'));
+  const tokenizerJson = readJson(modelDir, 'tokenizer.json');
+  const tokenizerConfig = readJson(modelDir, 'tokenizer_config.json');
+  const tokenizer = new Tokenizer(tokenizerJson, tokenizerConfig);
   const config = readJson(modelDir, 'config.json');
   const dims = Number(config.hidden_size);
   if (!Number.isInteger(dims) || dims <= 0) throw new Error(`config.json 的 hidden_size 不是正整数：${config.hidden_size}`);
@@ -54,9 +56,29 @@ export async function loadModel(modelDir = process.env.AKANE_EMBED_MODEL_DIR || 
   const wantsTypeIds = session.inputNames.includes('token_type_ids');
   const outName = session.outputNames.includes('last_hidden_state') ? 'last_hidden_state' : session.outputNames[0];
 
-  /** 暴露给分词对拍：id 序列与 token_type_ids，不带张量 */
+  /** 暴露给分词对拍：id 序列与 token_type_ids，不带张量。**绝不在这里截断** —— 对拍比的是分词本身 */
   function encodeOne(text) {
     return tokenizer.encode(String(text), { add_special_tokens: true, return_token_type_ids: true });
+  }
+
+  const MAX_TOKENS = Number(tokenizerConfig.model_max_length);
+  if (!Number.isInteger(MAX_TOKENS) || MAX_TOKENS <= 2) throw new Error(`tokenizer_config.json 的 model_max_length 不合法：${tokenizerConfig.model_max_length}`);
+
+  /**
+   * 右侧截断到 `model_max_length`，保住两头的特殊记号（`[CLS] … [SEP]`）。
+   * 不做这件事的话，超过 512 token 的输入会把 Bert 的位置编码撑爆，而 `onnxruntime-web`
+   * 的 WASM 后端抛的是**原生异常**（一个数字指针，不是 Error）—— 11-19 现网回填就撞在这上面：
+   * 服务日志只有 `embed FAILED 56751936`，`server.mjs` 兜不住 `.message`，插件侧只拿到
+   * `INFERENCE_FAILED`，整轮回填原地重试。
+   */
+  function clampTokens(encoded) {
+    const ids = encoded.ids;
+    if (ids.length <= MAX_TOKENS) return encoded;
+    const kept = ids.slice(0, MAX_TOKENS - 1);
+    kept.push(ids[ids.length - 1]);
+    const tokens = encoded.tokens.slice(0, MAX_TOKENS - 1);
+    tokens.push(encoded.tokens[encoded.tokens.length - 1]);
+    return { ...encoded, ids: kept, tokens, attention_mask: kept.map(() => 1), token_type_ids: kept.map(() => 0) };
   }
 
   /**
@@ -65,7 +87,7 @@ export async function loadModel(modelDir = process.env.AKANE_EMBED_MODEL_DIR || 
    */
   async function embed(texts) {
     if (texts.length === 0) return [];
-    const encoded = texts.map((text) => encodeOne(text));
+    const encoded = texts.map((text) => clampTokens(encodeOne(text)));
     const width = Math.max(1, ...encoded.map((item) => item.ids.length));
     const inputIds = new BigInt64Array(texts.length * width);
     const attention = new BigInt64Array(texts.length * width);
