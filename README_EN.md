@@ -25,7 +25,7 @@ Scan to join the QQ group / channel
 
 ## About this fork
 
-This repo is a local fork of `@tencent-connect/dsh-qqbot@0.5.5`. Only triggering and persona behaviour changed; every identity slot is renamed, so **the fork and the original can be installed in the same profile without interference** (flip which one runs with `disabled: true`).
+This repo is a local fork of `@tencent-connect/dsh-qqbot@0.5.5`. Changes concentrate in three behaviours — **triggering**, **persona**, and **media visibility in group history**; every identity slot is renamed, so **the fork and the original can be installed in the same profile without interference** (flip which one runs with `disabled: true`).
 
 | Identity slot | Original | This fork |
 |---|---|---|
@@ -38,7 +38,7 @@ This repo is a local fork of `@tencent-connect/dsh-qqbot@0.5.5`. Only triggering
 | bind routes | `/qqbot/im-qqbot/*` | `/qqbot/im-qqbot-akane/*` |
 | vision / send-file tools | `qqbot_describe_image` / `qqbot_send_file` | `akane_describe_image` / `akane_send_file` |
 
-New capabilities: group wake words, history carried on implicit wake-up, persona as hot-reloaded files, blacklist enforced in code.
+New capabilities: group wake words (three tables, editable right on the settings page), history carried on implicit wake-up, images in group history are visible to her (see "Group history images"), persona as hot-reloaded files, blacklist enforced in code, meme-image replies, and a quiet window that folds one thought split across several QQ messages into a single turn (see "Fragment quiet window").
 
 ```bash
 pnpm install && pnpm build
@@ -140,6 +140,10 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot-akane/cordis.dev.yml
 | `maxQueue` | number | `20` | Max concurrent queue length |
 | `historyLimit` | number | `10` | Group history buffer size |
 | `askTimeoutMs` | number | `300000` | Question timeout (ms), default 5 min (ask_user_question) |
+| `quietWindowMs` | number | `0` | Idle quiet window (ms): while she is idle, fragments from the same sender are folded into one answer. `0` = off (the middleware chain is byte-identical to the version without this feature). **Needs production arrival samples before turning on** — see spec §5 D2 |
+| `quietWindowEmptyShellMs` | number | `0` | Longer window (ms) for empty-shell fragments (@ or a name only, no body), `0` = fall back to `quietWindowMs` |
+| `quietWindowMaxWaitMs` | number | `0` | Hard ceiling per window, measured from the first fragment (ms); must be > 0 whenever the window is on, otherwise loading the plugin throws |
+| `quietWindowMaxFragments` | number | `4` | Max fragments per window; the batch is released as soon as it is reached (safety valve) |
 | `showToolResults` | boolean | `false` | Show successful tool-call results (errors always shown) |
 | `debug` | boolean | `false` | Debug mode |
 
@@ -174,6 +178,19 @@ config:
 
 Matching is lexical — CJK ideographs and alphanumerics are not boundaries, so "did you see the picture 茜 posted" does not trigger. URLs, code fences, inline code, QQ face tags and `@other-nickname` are masked at equal length before matching, and only the first 2000 characters of a long message are scanned. Editing the tables only touches `cordis.patch.yml`; the host picks the change up over HMR, no rebuild needed.
 
+### Fragment quiet window (quietWindow)
+
+QQ splits one thought into several messages. While she is idle each fragment triggers its own turn, so the same sentence gets answered twice. The window lets her collect a short batch before speaking: one bucket per group-and-sender, and only a fragment that actually names her may open it (other people's chatter is not pulled in).
+
+Four rules that interact, easy to trip over:
+
+- **The empty-shell window replaces, it does not add**: when the whole batch is only an @ — no text, no image — the length switches to `quietWindowEmptyShellMs`, so it is only meaningful when it is **larger** than `quietWindowMs`; a smaller value just speeds that shape up.
+- **The hard cap counts from the first fragment** and is not pushed back by later arrivals; `quietWindowMs > 0` with `quietWindowMaxWaitMs = 0` is an illegal combination (an endless stream would never be released) and throws at load time.
+- **Fragment valve**: once `quietWindowMaxFragments` are collected the batch is released immediately.
+- **Window length is latency**: it is added to every reply she makes. Setting it to 0 goes back to "one fragment, one answer"; setting it to tens of seconds makes her wait that long for every sentence. Only measurements can size it (`node scripts/arrival-report.mjs`), not intuition.
+
+All four fields are editable in the "Fragment quiet window" group on the settings page, each showing its value converted to seconds. Saving writes this plugin's entry in the profile and hot-reloads — no manual YAML, no process restart (in-flight bot sessions do reset). Design evidence and the decisions taken are in `docs/specs/2026-11-18-akane-fragment-merge-and-recall.md`.
+
 ### Persona files
 
 Who she is and how she talks moved out of the workspace `AGENTS.md` into Markdown files shipped with the plugin, cached by mtime+size — an edit takes effect on the next message, no restart:
@@ -187,6 +204,21 @@ config:
 
 Composition order is `persona file → lessons → legacy groupPrompt/directPrompt`, and the section is spliced in after the host's `deployment:persona-prefix` rather than appended to the end of the prompt. `persona/README.md` records the writing discipline: behaviour rules and few-shot dialogue, never a list of forbidden words.
 
+### Arrival probe (arrivalProbe)
+
+| Config | Type | Default | Description |
+|------|------|--------|------|
+| `arrivalProbe.enabled` | boolean | `false` | Record the arrival time of every inbound message (used to size the `quietWindowMs` default) |
+| `arrivalProbe.keepDays` | number | `30` | Days to keep probe files, 0 = never expire |
+
+Quiet-window length is latency added to **every** reply she makes, so its default has to come from measured production traffic rather than a guessed number. With the probe on, each inbound message appends one line to `~/.dsh-qqbot-akane/arrival/YYYY-MM-DD.jsonl` holding only `messageId` + local receive millis + a hash of the bucket key + whether her name was in it — **no message text, no openid**, which is why this file needs no redaction pass. To get numbers:
+
+```bash
+node scripts/arrival-report.mjs        # p50/p90/p95 plus sample size
+```
+
+The measurement rule lives in `src/features/arrival-stats.ts` (adjacent messages in the same bucket, gaps under 120s, and below 300 pairs it only reports "keep collecting"). In the off state nothing is mounted, no cleanup timer runs, and the directory is not even created. Until 300 pairs exist `quietWindowMs` can only be a provisional value (currently 12s in production, taken from the p50 = 10.2s dense band); once there are enough samples it gets re-derived from p90 — one field on the settings page, no restart.
+
 ### Rich media (media)
 
 | Config | Type | Default | Description |
@@ -194,6 +226,18 @@ Composition order is `persona file → lessons → legacy groupPrompt/directProm
 | `media.enabled` | boolean | `true` | Enable rich media understanding (image/video download + tool analysis) |
 | `media.maxMB` | number | `200` | Max download size (MB) |
 | `media.ttlHours` | number | `24` | Media lifetime (hours), 0 = never expire |
+
+### Group history images
+
+SDK history entries have a text slot only, so an image posted in a group collapses into a blank line once it is in history — she can see it when she is @-ed, but "what was that picture earlier" shows her nothing. This fork replaces the buffer with its own `akaneHistoryBuffer` (still mounted before `mentionGate`, so messages that don't mention her still enter history), keeps attachment metadata on each entry, and starts the download **at the moment of recording**.
+
+- **Why not download on demand**: QQ never documents how long its delivery links stay valid and there is no re-signing endpoint. Gambling on the link gives a dead path in context; she opens it, the tool errors, and that error text is what reaches QQ. Downloading at record time is correct under any expiry.
+- **When it downloads** (all six must hold): a group message (direct chats don't feed history) · not hard-blocked by `access` · the attachment is an image (video and files keep only a label) · not sent by the bot herself · not already on disk (dedup) · that group still has quota for the day. With `media.enabled=false` nothing on this path is written at all.
+- **Dedup**: the filename QQ hands out is the content MD5, and equality is decided on it; the current-message, quote and history paths share one ledger (`src/features/media-ledger.ts`), so the same meme is stored once and appears in context once.
+- **Limits**: 20 downloads per group per day (counted per attempt, failures do not refund; cache hits do not consume), anything beyond is labelled `[图片]` in history. Downloads sit at the tail of the queue, fire-and-forget, so flooding pictures only fills a queue — it never blocks her replying.
+- **Presentation**: an `        └ Image: <local path>` line hangs under the history entry, at most 4 paths per turn, allocated newest-first; entries without a path degrade to `[图片]` / `[视频]` / `[文件: name (size)]`. Signed URLs never enter context at all. If TTL cleanup removed the file, rendering checks on the spot — a dead path is never handed over.
+- **Lifetime**: unchanged, still `media.ttlHours` (default 24h, by file mtime; cleanup runs at startup and hourly).
+- **Quota and frequency are different things**: this caps **inbound** writes; how often she attaches a meme on the **outbound** side is a soft constraint in the `akane-sticker` skill, with no hard gate this cycle.
 
 ### Vision (vision)
 
@@ -237,7 +281,17 @@ src/
 ├── persona.ts                  # Persona file reader (mtime+size cache, lessons join)
 ├── persona-section.ts          # Persona section injection (splice after persona-prefix)
 ├── types.ts                    # Global types
-├── setup.ts                    # Credential binding (QR)
+├── setup/                      # Credential binding (QR)
+│   ├── index.ts                # Binding orchestration (ensureCredentials)
+│   ├── binding-service.ts      # QR polling state machine (single source of truth)
+│   ├── bind-routes.ts          # In-app bind page routes + config editing API
+│   ├── presenters.ts           # Presentation strategies (terminal / browser fallback)
+│   ├── qr-svg.ts               # QR SVG rendering (host side)
+│   └── persist.ts              # Writing credentials to cordis.patch.yml
+├── client/                     # Browser half (dsh.client Web Bundle)
+│   ├── index.ts                # Sidebar tab registration + bind guidance
+│   ├── bind-page.ts            # In-app bind page (QR + status polling)
+│   └── config-panel.ts         # Settings panel (wake tables / four window fields / access)
 ├── gateway/                    # Gateway assembly
 │   ├── bootstrap.ts            # Startup wiring (session/event listeners, etc.)
 │   └── middleware-setup.ts     # Middleware chain config
@@ -261,6 +315,9 @@ src/
 ├── features/                   # Interaction features
 │   ├── question-channel.ts     # ask_user_question Q&A channel
 │   ├── approval-channel.ts     # approval confirmation channel
+│   ├── history-store.ts        # Group history ring buffer (with attachment metadata)
+│   ├── media-ledger.ts         # Media ledger (dedup / single-flight / daily quota)
+│   ├── arrival-stats.ts        # Arrival-gap measurement rule (adjacent pairs per bucket)
 │   └── answer-parser.ts        # Answer parsing
 ├── media/                      # Media
 │   ├── vision-tool.ts          # Image vision understanding
@@ -268,6 +325,10 @@ src/
 │   └── media-cleaner.ts        # Media TTL cleanup
 ├── middleware/                 # Middleware
 │   ├── question-answer.ts      # Q&A answer handling
+│   ├── history-buffer.ts       # Group history buffer + download at record time (replaces the SDK one)
+│   ├── arrival-probe.ts        # Arrival-interval probe (step 3.5)
+│   ├── quiet-window.ts         # Idle quiet window (step 4.6, before the gate)
+│   ├── fragment-merge.ts       # Fragment merge (attribution / attachments / msg_id anchor)
 │   └── attachment.ts           # Attachment handling
 ├── shared/                     # Shared utilities
 │   ├── utils.ts                # Common helpers
@@ -290,6 +351,7 @@ Resolution strategy: in-process reuse → persisted resume → fresh create.
 - **Preset support** — mount presets (toolkits, prompts, etc.) via the `agent-presets` service
 - **Idle eviction** — auto-dispose Agents on timeout to prevent memory leaks
 - **Persona vs code** — tone and identity live in hot-reloaded `persona/*.md`; hard rules (blocklist = zero output) live in middleware, because self-restraint in a prompt is only probabilistic
+- **No gambling on external expiry** — QQ never promised a link lifetime, so media is downloaded at record time instead; every path handed to her is checked to exist right then, degrading to a label rather than passing a dead path she would turn into a QQ-visible tool error
 - **Vocabulary is configuration** — wake words and persona paths live in `cordis.patch.yml`; changing them changes neither code nor the build
 - **Markdown output** — replies sent as Markdown with code-block/table-aware chunking
 - **Image understanding** — supports `akane_describe_image` vision to analyze images sent by users

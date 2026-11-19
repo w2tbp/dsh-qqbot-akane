@@ -20,6 +20,10 @@ Window length is a cost added directly to every single reply she makes, so this 
 - The bounds (0-120000 ms, 1-20 fragments) exist once on the server and once in the client; the server is the boundary, the client copy only saves a round trip.
 - Production now runs an empty-shell window of 20000 instead of 0 (11-19 afternoon); still unverified on a real device.
 
+### Documentation
+
+- **README_EN brought up to parity with the Chinese README**: it was a whole release behind - the four `quietWindow` config rows, the fragment quiet-window section, the arrival-probe section, the group-history-images section and the `setup/` directory in the module tree were all missing. They are filled in from the Chinese text now, together with the "no gambling on external expiry" design principle, and both module trees list the files this fork adds (`config-panel.ts` / `arrival-probe.ts` / `quiet-window.ts` / `fragment-merge.ts` / `arrival-stats.ts`). The English tree remains a curated view, not a complete file listing.
+
 ## [0.5.5__0.2] - 2026-11-19
 
 One thought often arrives from QQ as several separate messages. This round handles the ingestion half of that problem; the recall half is sequenced later in the spec.

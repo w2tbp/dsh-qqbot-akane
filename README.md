@@ -38,7 +38,7 @@
 | 绑定路由 | `/qqbot/im-qqbot/*` | `/qqbot/im-qqbot-akane/*` |
 | 视觉 / 发文件工具 | `qqbot_describe_image` / `qqbot_send_file` | `akane_describe_image` / `akane_send_file` |
 
-新增能力：群聊唤醒词（§群聊唤醒词，三张表可在设置页直接编辑）、隐式唤醒也带群历史、群历史里的图片可被她看到（§群历史图片）、人格文件化热加载（§人格文件）、黑名单硬拦截（§访问控制）、表情包（梗图）回复能力。
+新增能力：群聊唤醒词（§群聊唤醒词，三张表可在设置页直接编辑）、隐式唤醒也带群历史、群历史里的图片可被她看到（§群历史图片）、一句话被拆成几条发时的碎片静默窗口（§碎片静默窗口，四栏可在设置页直接改）、人格文件化热加载（§人格文件）、黑名单硬拦截（§访问控制）、表情包（梗图）回复能力。
 
 ```bash
 pnpm install && pnpm build
@@ -290,7 +290,8 @@ src/
 │   └── persist.ts              # 凭据写入 cordis.patch.yml
 ├── client/                     # 浏览器半边（dsh.client Web Bundle）
 │   ├── index.ts                # 侧栏 Tab 注册 + 待绑定自动引导
-│   └── bind-page.ts             # 端内绑定页（二维码 + 状态轮询）
+│   ├── bind-page.ts            # 端内绑定页（二维码 + 状态轮询）
+│   └── config-panel.ts         # 设置页面板（唤醒词三表 / 窗口四栏 / 访问控制）
 ├── gateway/                    # 网关装配
 │   ├── bootstrap.ts            # 启动装配（监听 session/event 等）
 │   └── middleware-setup.ts     # 中间件链配置
@@ -316,6 +317,7 @@ src/
 │   ├── approval-channel.ts     # approval 审批确认通道
 │   ├── history-store.ts        # 群历史环形缓冲（带附件元数据）
 │   ├── media-ledger.ts         # 媒体落盘账本（去重 / 单飞 / 每日配额）
+│   ├── arrival-stats.ts        # 到达间隔口径（同桶相邻两条，定窗口用）
 │   └── answer-parser.ts        # 答案解析
 ├── media/                      # 多媒体
 │   ├── vision-tool.ts          # 图片视觉理解
@@ -324,6 +326,9 @@ src/
 ├── middleware/                 # 中间件
 │   ├── question-answer.ts      # 问答答案处理
 │   ├── history-buffer.ts       # 群历史缓冲 + 记录时落盘（替代 SDK 版）
+│   ├── arrival-probe.ts        # 到达间隔插桩（第 3.5 步）
+│   ├── quiet-window.ts         # 空闲静默窗口（第 4.6 步，门控之前）
+│   ├── fragment-merge.ts       # 分片合并（归属 / 附件 / msg_id 锚点）
 │   └── attachment.ts           # 附件处理
 ├── shared/                     # 共享工具
 │   ├── utils.ts                # 通用函数
