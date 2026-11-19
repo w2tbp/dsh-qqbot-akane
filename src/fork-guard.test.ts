@@ -148,6 +148,63 @@ const POINTS: ForkPoint[] = [
     ],
   },
   {
+    file: 'src/gateway/bootstrap.ts',
+    why: '记忆库唯一挂点：整个 T2（索引 + 回填 + akane_recall）只从这里进来，丢了这一行 memory/ 全部单测照绿而现网什么都没开',
+    must: [
+      /import \{ startMemoryFeature \} from '\.\.\/memory\/index\.ts'/,
+      /startMemoryFeature\(\{/,
+      /agentCwd: resolveAgentCwd\(config\.cwd\)/,
+    ],
+  },
+  {
+    file: 'src/memory/index.ts',
+    why: '「关闭态零行为变化」是验收项不是愿望：开关只在函数第一行判一次，别处再判就会出现「一处关一处开」。能力日志那两串是 spec 核的原文',
+    must: [
+      /if \(!config\.memory\.enabled\) return;/,
+      /export const EMBED_CAPABILITY_UP = 'embedding\(可用\)'/,
+      /export const EMBED_CAPABILITY_DOWN = 'embedding\(不可达，已降级字面档\)'/,
+    ],
+  },
+  {
+    file: 'src/memory/index.ts',
+    why: 'chunk 边界与静默窗口同源同值（§1.4）：两头各定一套阈值 = 折叠说一条、chunk 说两条',
+    must: [/quietWindowMs: config\.quietWindowMs/],
+  },
+  {
+    file: 'src/memory/embed-client.ts',
+    why: '隐私边界的执行点：送进 /embed 的就是聊天正文，非回环端点必须直接拒（连请求都不发）。远程 embedding 兜底通路不许存在',
+    must: [
+      /if \(url\.protocol !== 'http:'\) return \{ ok: false, code: 'ENDPOINT_NOT_LOOPBACK' \}/,
+      /if \(!isLoopbackHost\(url\.hostname\)\) return \{ ok: false, code: 'ENDPOINT_NOT_LOOPBACK' \}/,
+    ],
+  },
+  {
+    file: 'src/memory/peer.ts',
+    why: '归属解析不出时必须 fail-closed：两侧都 unknown 也不许互相召回（同 sessions 根下另有别人的转录）',
+    must: [
+      /export const UNKNOWN_PEER = 'unknown'/,
+      /if \(currentPeer === undefined \|\| currentPeer === UNKNOWN_PEER\) return false;/,
+    ],
+  },
+  {
+    file: 'src/memory/recall-tool.ts',
+    why: '召回的过滤只认 chunk.peer 一处；改成按会话目录放宽就等于把用户本人的开发对话捞进她的上下文',
+    must: [/if \(samePeer\(row\.peer, currentPeer\)\)/],
+    mustNot: [/filterSessions\(/, /listSessionIdsByCwd\(/, /readWindow\(\s*\{\s*cwd/],
+  },
+  {
+    file: 'src/memory/retrieval.ts',
+    why: '字面档是逐词 AND，不是 FTS5：实测中文进 FTS 全 0 命中，改成 MATCH 就是「永远查不到」而不报错',
+    must: [/export function matchesLiteral/, /const RRF_K = 60;/],
+    mustNot: [/CREATE TABLE/, /\bMATCH\b\s*\(/, /\.prepare\(/],
+  },
+  {
+    file: 'embed-service/server.mjs',
+    why: '常驻服务只绑回环，且连 host 都不读配置 —— 这台机器局域网可达，开成 0.0.0.0 等于把聊天正文接口开放给整栋楼',
+    must: [/const HOST = '127\.0\.0\.1';/, /server\.listen\(port, HOST/],
+    mustNot: [/process\.env\.AKANE_EMBED_HOST/, /from\(['"`]node:child_process['"`]\)/],
+  },
+  {
     file: 'src/index.ts',
     why: '插件身份与官方隔离，同 id 会互相顶掉',
     must: [/export const name = 'im-qqbot-akane'/],
@@ -161,6 +218,7 @@ const CONFIG_FIELDS = [
   'personaGroupFile', 'personaDirectFile', 'personaLessonsDir',
   'quietWindowMs', 'quietWindowEmptyShellMs', 'quietWindowMaxWaitMs', 'quietWindowMaxFragments',
   'arrivalProbe',
+  'memory', 'embedBaseUrl', 'syncIntervalMs',
 ];
 
 /** 构建产物入库是刻意的（GitHub 安装开箱即用），这几条防「改了 src 忘了 build」 */
@@ -180,6 +238,16 @@ const BUILT: Array<[string, RegExp]> = [
   ['lib/gateway/middleware-setup.js', /akaneQuietWindow/],
   ['lib/gateway/middleware-setup.js', /akaneArrivalProbe/],
   ['lib/gateway/bootstrap.js', /startProbeCleanup/],
+  ['lib/gateway/bootstrap.js', /startMemoryFeature/],
+  ['lib/memory/index.js', /startMemoryFeature/],
+  ['lib/memory/index.js', /embedding\(不可达，已降级字面档\)/],
+  ['lib/memory/embed-client.js', /isLoopbackHost/],
+  ['lib/memory/index-store.js', /vectors\.f32\.bin/],
+  ['lib/memory/chunking.js', /chunkEvents/],
+  ['lib/memory/peer.js', /samePeer/],
+  ['lib/memory/backfill.js', /startMemorySync/],
+  ['lib/memory/retrieval.js', /matchesLiteral/],
+  ['lib/memory/recall-tool.js', /akane_recall/],
   ['lib/session/session-manager.js', /insertPersonaSection/],
   ['lib/client.js', /wakeWords/],
   ['lib/client.js', /quietWindowMaxFragments/],
@@ -242,6 +310,33 @@ describe('fork 挂载点守卫', () => {
       expect(existsSync(resolve(ROOT, file)), `缺产物 ${file}（跑 pnpm build）`).toBe(true);
       expect(read(file), `${file} 落后于 src（跑 pnpm build）`).toMatch(signal);
     }
+  });
+
+  it('记忆库三条红线还在位（起进程 / 按 cwd 放宽召回 / 未脱敏出口）', () => {
+    const files = listSourceFiles(resolve(ROOT, 'src/memory')).filter((f) => !f.endsWith('.test.ts'));
+    const hits: string[] = [];
+    // 每条红线的判据写成「代码行里不许出现的形状」，注释里提到这些词是正当的
+    const banned: Array<[string, RegExp]> = [
+      ['常驻服务启停归用户', /\bspawn\w*\s*\(|from ['"`]node:child_process['"`]|process\.kill\(/],
+      ['不许降级到远程 embedding', /(https?:\/\/[^'"`\s]*)(openai|aliyuncs|zhipu|huggingface|jina\.ai)/i],
+    ];
+    for (const [why, re] of banned) {
+      for (const file of files) {
+        if (re.test(codeLines(readFileSync(file, 'utf8')))) hits.push(`${file.replace(ROOT + '/', '')} :: ${why}`);
+      }
+    }
+    // 回填（写入侧）按 cwd 挑「哪些转录算她的」是设计内的；红线只管读回那半边
+    for (const file of ['src/memory/recall-tool.ts', 'src/memory/retrieval.ts']) {
+      if (/filterSessions\(|listSessionIdsByCwd\(|sessionIdByCwd\(/.test(codeLines(read(file)))) {
+        hits.push(`${file} :: 不得按 cwd 放宽召回`);
+      }
+    }
+    expect(hits, '越线').toEqual([]);
+
+    // 每个返回给她的文本都必须过脱敏，且过完还要再复查一次（scrub 是正则替换，挡不住所有形状）
+    const recall = read('src/memory/recall-tool.ts');
+    expect(recall).toMatch(/scrubForReturn\(event\.rawText\)/);
+    expect(recall).toMatch(/containsHostLeak\(text\)/);
   });
 
   it('src 里没有原版身份残留', () => {
