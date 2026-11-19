@@ -23,6 +23,7 @@ import type { ImQQBotConfig } from '../config.ts';
 import type { ChatScope, Logger } from '../types.ts';
 import { setupMiddlewares } from './middleware-setup.ts';
 import { startMediaCleanup } from '../media/media-cleaner.ts';
+import { startProbeCleanup } from '../middleware/arrival-probe.ts';
 import { ensureVisionInputModal, registerDescribeImageTool } from '../media/vision-tool.ts';
 import { registerSendFileTool, type MediaSenderLike } from '../media/send-file-tool.ts';
 import { DeliverablesDeliverer } from '../transport/deliverables.ts';
@@ -176,6 +177,11 @@ export async function bootstrapGateway(
   // ── 富媒体过期清理 ──
   if (config.media.enabled) {
     startMediaCleanup(ctx, config.media.ttlHours, logger);
+  }
+
+  // ── 到达间隔插桩的过期清理（插桩本身在中间件链第 3.5 步挂载）──
+  if (config.arrivalProbe.enabled) {
+    startProbeCleanup(ctx, config.arrivalProbe.keepDays, logger);
   }
 
   // ── 视觉工具注册（akane_describe_image，复用 dsh llm + attachments） ──

@@ -44,6 +44,14 @@ export interface VisionConfig {
   timeoutMs: number;
 }
 
+/** 到达间隔插桩配置 — spec §5 D2：先量数据，再定 quietWindowMs 的默认值 */
+export interface ArrivalProbeConfig {
+  /** 是否开启插桩（默认关；关闭时不挂载中间件、不起定时器、目录都不创建） */
+  enabled: boolean;
+  /** 插桩文件保留天数，0 = 永不过期 */
+  keepDays: number;
+}
+
 /** 附件发送配置（akane_send_file 工具与 present 交付物投递共用） */
 export interface SendFileConfig {
   /** 是否启用路径白名单（默认 true，仅允许 media + cwd + extraRoots；关闭则任意路径） */
@@ -93,6 +101,20 @@ export interface ImQQBotConfig {
   processingTimeoutMs: number;
   /** 待答问题超时(ms)，超时自动拒绝并提示（ask_user_question） */
   askTimeoutMs: number;
+  /**
+   * 空闲静默窗口(ms)：门控之前攒同一个人的连续分片。**0 = 关闭**（默认），
+   * 关闭态链序与改动前逐字节一致。数值待现网到达间隔样本定，见
+   * docs/specs/2026-11-18-akane-fragment-merge-and-recall.md §5 D2。
+   */
+  quietWindowMs: number;
+  /** 空壳分片（只有 @/称呼、没正文）的长窗口(ms)：此刻无话可答，等待成本为零 */
+  quietWindowEmptyShellMs: number;
+  /** 单个静默窗口从首片起的最长等待硬顶(ms)，到点必放行 */
+  quietWindowMaxWaitMs: number;
+  /** 单个静默窗口最多攒几条分片，达到即立即放行 */
+  quietWindowMaxFragments: number;
+  /** 到达间隔插桩（给 quietWindowMs 定默认值用，不参与任何判定） */
+  arrivalProbe: ArrivalProbeConfig;
   /** 群历史缓冲条数 */
   historyLimit: number;
   /** 隐式唤醒强词表（空 = 关闭隐式唤醒，行为与不配一致） */
@@ -144,6 +166,14 @@ export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
   maxQueue: Schema.number().default(20).description('并发队列最大长度'),
   processingTimeoutMs: Schema.number().default(30 * 60 * 1000).description('处理超时(ms)，超时中断当前 LLM 调用'),
   askTimeoutMs: Schema.number().default(5 * 60 * 1000).description('待答问题超时(ms)，超时自动拒绝并提示'),
+  quietWindowMs: Schema.number().default(0).description('空闲静默窗口(ms)，攒同一个人的连续分片；0=关闭。开启前须有现网到达间隔样本（spec §5 D2）'),
+  quietWindowEmptyShellMs: Schema.number().default(0).description('空壳分片（只有@/称呼）的长窗口(ms)，0=沿用 quietWindowMs'),
+  quietWindowMaxWaitMs: Schema.number().default(0).description('静默窗口从首片起的最长等待硬顶(ms)，开启时必须 > 0'),
+  quietWindowMaxFragments: Schema.number().default(4).description('静默窗口最多攒几条分片，达到即放行（安全阀，与 maxQueue 不同层）'),
+  arrivalProbe: Schema.object({
+    enabled: Schema.boolean().default(false).description('到达间隔插桩：只记 messageId+接收毫秒+桶散列，用来定 quietWindowMs 默认值；关闭时零写入'),
+    keepDays: Schema.number().default(30).description('插桩文件保留天数，0=永不过期'),
+  }).default({ enabled: false, keepDays: 30 }).description('到达间隔插桩（观测用）'),
   historyLimit: Schema.number().default(10).description('群历史缓冲条数'),
   wakeWords: Schema.array(Schema.string()).default([]).description('群聊隐式唤醒词（强词：独立成词即触发，命中即回）'),
   wakeWordsWeak: Schema.array(Schema.string()).default([]).description('群聊隐式唤醒词（弱词：需句首/称呼标点/后接疑问等呼格信号）'),
