@@ -1,29 +1,60 @@
 # embed-service —— 本机常驻 embedding 服务
 
-akane 记忆库（`docs/specs/2026-11-19-akane-memory-stack.md` §14）的语义档依赖它。
-它**是一个独立进程**，不是 `dsh web` 的一部分：ONNX 推理塞进插件进程会把她的回复
-拖慢，而这条通路一旦不可用，召回只是降级成字面档，不该连插件一起下线。
+akane 记忆库的语义档依赖它。它**是一个独立进程**，不是 `dsh web` 的一部分：ONNX 推理
+塞进插件进程会把她的回复拖慢，而这条通路一旦不可用，召回只是降级成字面档，不该连插件
+一起下线。（设计正本在项目根 `MEMORY.md`，那份在 git 库之外，所以这里只给结论不给锚点。）
 
 模型：`Xenova/bge-small-zh-v1.5`，ONNX **q8** 单精度量化版，输出 512 维、L2 归一化。
 fp32（94.9MB）不进项目资产，只保 q8（24,010,842B）。
 
+## 运行前提：只有 Node
+
+唯一需要预装的是 **Node ≥ 22**（`package.json` 的 `engines`；本机实测 v22.20.0），
+以及 PATH 里能敲到 `npm`。**不需要 python、不需要 torch、不需要 CUDA，也没有任何原生
+编译依赖**：`onnxruntime-web` 在 Node 里走 WASM，`@huggingface/tokenizers` 是纯 JS，
+两个包三平台共用同一份产物 —— 所以 Windows 装它不会因为 node-gyp / VS Build Tools 卡住。
+推理代码本身是平台无关的，Windows 那一边只多两件事：安装脚本（`install.mjs` 是纯 Node，
+不调 `curl` / `sha256sum` / `find`）和启停脚本（`start.ps1` / `stop.ps1`）。
+
+> Windows 上装 Node 用官方 .msi 或 `winget install OpenJS.NodeJS.LTS` 都行，装完重开
+> 一个终端确认 `node -v`。这一步归你，脚本不代劳。
+
 ## 安装
 
 ```bash
-cd embed-service
-./install.sh
+# Linux / macOS
+cd embed-service && ./install.sh
+
+# Windows（PowerShell）—— install.sh 只是 install.mjs 的薄壳，直接敲 mjs 完全等价
+cd embed-service; node install.mjs
 ```
 
-装两件东西：依赖（`onnxruntime-web@1.17.3` + `@huggingface/tokenizers@0.2.0`，版本锁死）
-和权重（下到 `./model/`，按 size + sha256 校验）。可重入：已校验过的文件直接跳过。
+`install.sh` 内部就是 `exec node install.mjs "$@"`，两个文件都收同一套参数。装两件东西：
+依赖（`onnxruntime-web@1.17.3` + `@huggingface/tokenizers@0.2.0`，版本锁死）和权重
+（下到 `./model/`，按 size + sha256 校验）。**可重入**：已校验过的文件直接跳过，重复跑
+没有副作用。权重来源按「`./model/` 已就位 → 本地 HF 缓存 → 镜像下载」三处轮询，每处都
+用同一份 sha256 判定，所以 `huggingface-cli` 以前下过的话不会重复下载。
+
+参数与环境变量：
+
+| 项 | 作用 |
+| --- | --- |
+| `--model-dir <路径>` / `AKANE_EMBED_MODEL_DIR` | 权重目录（默认 `./model`）。Windows 上放别处就用它 |
+| `--mirror <url>` / `AKANE_EMBED_MIRROR` | 权重镜像，默认 `https://hf-mirror.com` |
+| `--registry <url>` / `AKANE_EMBED_NPM_REGISTRY` | npm 镜像源（npm 自己认的 `npm_config_registry` 也照常生效） |
+| `--revision <sha>` / `AKANE_EMBED_REVISION` | 权重 revision；改它等于换文件身份，务必同时核对 sha256 |
+| `--skip-deps` | 只补权重，不跑 `npm install` |
+| `--skip-selftest` | 跳过自检（排障用；正常装机别跳） |
 
 国内网络的两条既定事实（不是抖动，别反复重试）：
 
-- `huggingface.co` 不可达 → 默认走 `https://hf-mirror.com`。换源用
-  `AKANE_EMBED_MIRROR=<url>`；要过代理就按 curl/npm 都认的 `HTTPS_PROXY` / `https_proxy` 走。
-- npm 想加速用 `AKANE_EMBED_NPM_REGISTRY=<镜像源>`。
-- 权重目录想换地方：`AKANE_EMBED_MODEL_DIR=<路径>`（install.sh 与 `node server.mjs` 都读它，
-  也可以用 `--model-dir` 显式传）。
+- `huggingface.co` 不可达 → 默认走 `https://hf-mirror.com`。
+- 代理：**Node 的全局 `fetch` 不读 `HTTPS_PROXY`**（curl 读），所以脚本里自己写了
+  CONNECT 隧道，只认 `HTTPS_PROXY` / `https_proxy`，并按 `NO_PROXY` 的主机规则直连
+  （全局代理 + 内网镜像源这台机器上真有人这么配）。`HTTP_PROXY` 不参与 —— 权重全走
+  https，用不上它。npm 那一跳是 npm 自己发请求，代理配在 npm 里。
+- 镜像对连续拉取会回 **429**（本机实测），所以下载带重试：408/429/5xx 与超时/断连退避
+  5s、10s 各重一次；404 这类明确失败**不重试**（revision 写错要立刻看见）。
 
 装完脚本会自动跑下面两个自检，任一失败即非零退出。
 
@@ -32,16 +63,35 @@ cd embed-service
 插件**不 spawn、不自愈、不 kill** 这个进程。启停由你负责：
 
 ```bash
+# Linux / macOS
 cd embed-service
 setsid nohup node server.mjs > ~/.akane-embed.log 2>&1 < /dev/null &   # 起
 kill "$(pgrep -f 'embed-service/server.mjs')"                            # 停
 ```
+
+```powershell
+# Windows：后台起 + pid 文件 + 轮询 /health 最多 30s
+cd embed-service
+powershell -ExecutionPolicy Bypass -File .\start.ps1 -Port 8765
+powershell -ExecutionPolicy Bypass -File .\stop.ps1  -Port 8765
+```
+
+`start.ps1` 把 pid 写到 `%USERPROFILE%\.akane-embed.pid`，日志（含轮转）写
+`%LOCALAPPDATA%\.dsh-qqbot-akane\embed-service\`；已在跑就拒绝起第二个。`stop.ps1` 先认
+pid 文件，文件没了才按命令行特征（`embed-service*server.mjs*--port <端口>`）找进程，
+匹配不到就报「没找到」——**不做全局 node 匹配**，否则一条 `Get-Process node` 会把
+`dsh web` 一起端掉。`-Threads` 与 `-ModelDir` 两边同名可传。
 
 - 默认 `127.0.0.1:8765`；`--port 9000` 或 `AKANE_EMBED_PORT=9000` 改端口。
 - **只绑回环，`HOST` 连配置都不读**。送进 `/embed` 的就是聊天正文，绑 `0.0.0.0`
   等于把这个接口开放给整栋楼。改端口可以，改监听地址不行。
 - `AKANE_EMBED_THREADS` 调 WASM 线程数，默认 1（本机单线程已经够用：见下面「实测数字」）。
 - 日志只打批次条数、维度、耗时、RSS —— 正文一个字符都不写。
+
+**Windows 通路目前的诚实状态**：`install.mjs` 的下载三路线、重试、隧道与拒绝分支都在
+本机（Linux）实跑过，`install.sh` 对参数是原样透传；`start.ps1` / `stop.ps1` **没有
+Windows 机器可实跑**，`onnxruntime-web` 的 WASM 在 Windows 上的表现也没验过。这两条
+在装机遇到问题时是第一嫌疑，别当成已验证的通路。
 
 ## 接口
 
@@ -87,4 +137,5 @@ node selftest.mjs           # 相关句对 vs 无关句对，必须 minRelated >
 对非回环直接拒绝（连请求都不发）。服务不可达时：回填跳过这一轮（不重试轰炸），
 召回降级成只走字面档并在返回体里写明。**不存在**降级到远程 embedding API 的路径。
 
-`model/` 与 `node_modules/` 都进了 `.gitignore`——权重不进 git，装机靠 `install.sh`。
+`model/` 与 `node_modules/` 都进了 `.gitignore`——权重不进 git，装机靠 `install.mjs`
+（`install.sh` 是它的 bash 薄壳，Windows 上用不上 bash 也没关系）。

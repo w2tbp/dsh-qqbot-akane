@@ -8,7 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "setup": "bash install.sh",
+    "setup": "node install.mjs",
     "start": "node server.mjs",
     "selftest": "node selftest.mjs",
     "verify:tokenizer": "node verify-tokenizer.mjs"

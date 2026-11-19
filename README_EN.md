@@ -271,7 +271,7 @@ Lets her find back things **she herself said** across turns and across restarts,
 | `memory.syncIntervalMs` | number | `600000` | Background sync interval (ms); the first pass backfills everything |
 
 - **Its ceiling is set by T1, not by retrieval**: a group message that neither mentioned her nor got folded into the context of a turn she answered simply isn't in the transcript, and no search can conjure it. The memory stack fixes "it's there but I can't find it / can't find the right thing", **not** "it was never stored".
-- **Needs a resident service the user starts**: `embed-service/` (a separate Node process, ONNX q8 build of `bge-small-zh-v1.5`, bound to `127.0.0.1` only). The plugin **never spawns, self-heals, or kills** it; install and start/stop instructions live in [`embed-service/README.md`](./embed-service/README.md). When the service is unreachable, recall degrades to the literal lane — there is **no** fallback path to a remote embedding API.
+- **Needs a resident service the user starts**: `embed-service/` (a separate Node process, ONNX q8 build of `bge-small-zh-v1.5`, bound to `127.0.0.1` only; **requires nothing but Node ≥22 — no Python, no CUDA, same code on Linux / macOS / Windows**). The plugin **never spawns, self-heals, or kills** it; install and start/stop instructions live in [`embed-service/README.md`](./embed-service/README.md). When the service is unreachable, recall degrades to the literal lane — there is **no** fallback path to a remote embedding API.
 - **Three files under `~/.dsh-qqbot-akane/index/`**: `chunks.jsonl` (text + metadata), `vectors.f32.bin` (same order, fixed width), `meta.json` (schema / model / dims / sync cursor). Delete the whole directory and it rebuilds; the plugin starts fine either way.
 - **The privacy boundary is the `peer` written at index time.** Recall only ever matches the same peer, there is no cross-peer switch, and it never widens by working directory (other people's transcripts — including the user's own development sessions — live under the same sessions root). Transcripts whose owner can't be resolved are indexed but permanently unrecallable.
 - **Return bodies never contain** host paths, `└ Image:` lines, session ids, openids or appIds. Every failure answers with the "not found (…)" family of fixed strings (one per cause, none carrying the underlying error), and no exception is allowed to escape `execute` — that would surface in QQ as `❌ tool akane_recall failed`.
@@ -368,7 +368,7 @@ src/
 └── commands/                   # Slash commands
 ```
 
-At the top level there is also `embed-service/`: the local resident embedding micro-service (its own Node process plus an `install.sh` that fetches the weights). It is not part of the plugin process and does not start or stop with it.
+At the top level there is also `embed-service/`: the local resident embedding micro-service (its own Node process plus an `install.mjs` that fetches the weights). It is not part of the plugin process and does not start or stop with it. Provisioning only needs Node — `install.sh` is a thin bash wrapper around it; on Windows run `node install.mjs` and manage the process with `start.ps1` / `stop.ps1` (see that directory's README).
 
 ## Session Routing
 

@@ -271,7 +271,7 @@ SDK 的历史条目只有文本位，所以群里发的图片一旦进历史就�
 | `memory.syncIntervalMs` | number | `600000` | 后台同步间隔(ms)，首轮即全量回填 |
 
 - **它的能力上限由 T1 决定，不由检索决定**：没点她名、也没被她那一轮拼进上下文的话，转录里就没有——任何检索都变不出来。记忆库解决的是「有，但搜不到 / 搜不准」，**不解决**「根本没存」。
-- **需要用户自己起的常驻服务**：`embed-service/`（独立进程，模型 `bge-small-zh-v1.5` 的 ONNX q8，只绑 `127.0.0.1`）。插件**不 spawn、不自愈、不 kill**，装法与启停见 [`embed-service/README.md`](./embed-service/README.md)。服务不可达时召回降级成只走字面档，**不存在**降级到远程 embedding API 的路径。
+- **需要用户自己起的常驻服务**：`embed-service/`（独立进程，模型 `bge-small-zh-v1.5` 的 ONNX q8，只绑 `127.0.0.1`；**只要 Node ≥22，不需要 python / CUDA，Linux / macOS / Windows 同一份代码**）。插件**不 spawn、不自愈、不 kill**，装法与启停见 [`embed-service/README.md`](./embed-service/README.md)。服务不可达时召回降级成只走字面档，**不存在**降级到远程 embedding API 的路径。
 - **索引三文件在 `~/.dsh-qqbot-akane/index/`**：`chunks.jsonl`（文本 + 元数据）、`vectors.f32.bin`（同序定长）、`meta.json`（schema / 模型 / 维度 / 同步游标）。整目录删掉可全量重建，插件照常启动。
 - **隐私边界 = chunk 写入时落地的 `peer`**，召回只认同 peer，**没有跨 peer 开关也不按会话目录放宽**（同一 sessions 根目录下另有别人的转录，含用户本人的开发对话）；解析不出归属的转录只进索引、永不可召回。
 - **返回体不含主机路径 / `└ Image:` 行 / session id / openid / appId**，任何失败都回「没查到（…）」这一族固定措辞（按成因分四条，都不带错误原文），异常绝不逃出 `execute`（否则会变成 QQ 里的 `❌ 工具 akane_recall 执行失败`）。
@@ -368,7 +368,7 @@ src/
 └── commands/                   # 斜杠命令
 ```
 
-顶层还有一目录 `embed-service/`：本机常驻 embedding 微服务（独立 node 进程 + `install.sh` 拉权重），不在插件进程内，也不随插件启停。
+顶层还有一目录 `embed-service/`：本机常驻 embedding 微服务（独立 node 进程 + `install.mjs` 拉权重），不在插件进程内，也不随插件启停。装权重只需要 Node，`install.sh` 是它的 bash 薄壳；Windows 用 `node install.mjs` 加 `start.ps1` / `stop.ps1`（详见该目录 README）。
 
 ## 会话路由
 

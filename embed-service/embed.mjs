@@ -28,14 +28,14 @@ const JSON_FILES = ['tokenizer.json', 'tokenizer_config.json', 'config.json', 's
 
 function readJson(dir, name) {
   const file = path.join(dir, name);
-  if (!fs.existsSync(file)) throw new Error(`${name} 缺失：${file} —— 先跑 install.sh 取权重`);
+  if (!fs.existsSync(file)) throw new Error(`${name} 缺失：${file} —— 先跑 node install.mjs 取权重`);
   return JSON.parse(fs.readFileSync(file, 'utf8'));
 }
 
 export async function loadModel(modelDir = process.env.AKANE_EMBED_MODEL_DIR || DEFAULT_MODEL_DIR) {
   for (const name of [WEIGHT_FILE, ...JSON_FILES]) {
     if (!fs.existsSync(path.join(modelDir, name))) {
-      throw new Error(`${name} 缺失于 ${modelDir} —— 先跑 install.sh`);
+      throw new Error(`${name} 缺失于 ${modelDir} —— 先跑 node install.mjs`);
     }
   }
 
