@@ -14,7 +14,7 @@ import { EMBED_DIMS } from './index-store.ts';
 import { UNKNOWN_PEER } from './peer.ts';
 import { runBackfillOnce, type BackfillDeps } from './backfill.ts';
 
-const CWD = '/home/huwp/.dsh-qqbot-akane/workspace';
+const CWD = '/home/anon/.dsh-qqbot-akane/workspace';
 const UNIT_DIMS = EMBED_DIMS;
 
 let dir = '';
@@ -183,7 +183,7 @@ describe('幂等与增量（§9 测试 8）', () => {
   });
 
   it('嵌入反复失败 → 游标不动，下一轮还会试同一批', async () => {
-    vi.mocked(fetch).mockRejectedValue(new Error('ECONNREFUSED /home/huwp'));
+    vi.mocked(fetch).mockRejectedValue(new Error('ECONNREFUSED /home/anon'));
     const backfill = deps();
     const first = await runBackfillOnce(backfill);
     expect(first).toMatchObject({ failed: true, failureCode: 'EMBED_UNAVAILABLE' });
@@ -210,7 +210,7 @@ describe('归属与降级', () => {
             ? {
                 filterSessions: async () => [{ header: { id: 's-bad' } }, { header: { id: 's-good' } }],
                 readSession: async (id: string) => {
-                  if (id === 's-bad') throw Object.assign(new Error("scandir '/home/huwp/.dsh/sessions' SENTINEL"), { code: 'EACCES' });
+                  if (id === 's-bad') throw Object.assign(new Error("scandir '/home/anon/.dsh/sessions' SENTINEL"), { code: 'EACCES' });
                   return { session: { id }, events: [userEvent(1, 0, '甲')] };
                 },
               }

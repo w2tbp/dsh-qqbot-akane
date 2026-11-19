@@ -9,7 +9,7 @@ import { chunkEvents, extractCurrentMessage, type ChunkDraft, type TranscriptEve
 
 const SCAFFOLD = [
   '[Chat history begins]',
-  '  └ Image: /home/huwp/.dsh-qqbot-akane/media/abc_1700000000000_x.png',
+  '  └ Image: /home/anon/.dsh-qqbot-akane/media/abc_1700000000000_x.png',
   '  小明 (o777abc): 这猫粮多少钱',
   '[Chat history ends]',
   '[Current message] 猫粮太贵了，一包要两百多',
@@ -117,7 +117,7 @@ describe('chunkEvents', () => {
   });
 
   it('只有图片行、没有正文 → 丢弃而不是留下空 chunk', () => {
-    const result = chunkEvents([event(1, 0, 'peer', '└ Image: /home/huwp/.dsh-qqbot-akane/media/a_1_x.png')], 12000);
+    const result = chunkEvents([event(1, 0, 'peer', '└ Image: /home/anon/.dsh-qqbot-akane/media/a_1_x.png')], 12000);
     expect(result.chunks).toEqual([]);
     expect(result.dropped).toEqual([{ seq: 1, reason: 'empty' }]);
   });

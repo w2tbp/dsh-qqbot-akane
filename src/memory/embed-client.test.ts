@@ -45,7 +45,7 @@ describe('isLoopbackHost', () => {
   });
 
   it('其余一律拒绝（含局域网与公网，配置写错也不放行）', () => {
-    for (const host of ['192.168.1.100', '10.0.0.1', '0.0.0.0', '128.0.0.1', 'embedding.internal', 'evil.example.com']) {
+    for (const host of ['192.0.2.100', '10.0.0.1', '0.0.0.0', '128.0.0.1', 'embedding.internal', 'evil.example.com']) {
       expect(isLoopbackHost(host)).toBe(false);
     }
   });
@@ -54,7 +54,7 @@ describe('isLoopbackHost', () => {
 describe('端点守卫', () => {
   it('非回环 → ENDPOINT_NOT_LOOPBACK，且一次请求都不发', async () => {
     const fetchMock = vi.mocked(fetch);
-    const bad = { ...config, baseUrl: 'http://192.168.1.100:8765' };
+    const bad = { ...config, baseUrl: 'http://192.0.2.100:8765' };
     expect(await embedTexts(['猫粮多少钱'], bad)).toEqual({ ok: false, code: 'ENDPOINT_NOT_LOOPBACK' });
     expect(await probeEmbedHealth(bad)).toEqual({ ok: false, code: 'ENDPOINT_NOT_LOOPBACK' });
     expect(fetchMock).not.toHaveBeenCalled();
@@ -116,7 +116,7 @@ describe('失败收敛（永不抛）', () => {
     vi.mocked(fetch).mockRejectedValue(timeout);
     expect(await embedTexts(['甲'], config)).toEqual({ ok: false, code: 'TIMEOUT' });
 
-    vi.mocked(fetch).mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:8765 /home/huwp'));
+    vi.mocked(fetch).mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:8765 /home/anon'));
     const out = await embedTexts(['甲'], config);
     expect(out).toEqual({ ok: false, code: 'UNREACHABLE' });
     expect(JSON.stringify(out)).not.toContain('/home/');

@@ -19,7 +19,7 @@ import {
   scrubForReturn,
 } from './transcript-source.ts';
 
-const LEAKY = "scandir '/home/huwp/.dsh/sessions/--home-huwp-dev--' SENTINEL";
+const LEAKY = "scandir '/home/anon/.dsh/sessions/--home-anon-dev--' SENTINEL";
 
 function hostError(code: string): Error {
   return Object.assign(new Error(`boom ${LEAKY}`), { code });
@@ -211,7 +211,7 @@ describe('readEventWindow', () => {
 
 describe('scrubForReturn / containsHostLeak（§9 测试 3）', () => {
   const WITH_IMAGE = ['[Chat history begins]', '  小明 (o777abc): 这猫粮多少钱', '[Chat history ends]',
-    '[Current message] 那张图', '  └ Image: /home/huwp/.dsh-qqbot-akane/media/a_1_x.png'].join('\n');
+    '[Current message] 那张图', '  └ Image: /home/anon/.dsh-qqbot-akane/media/a_1_x.png'].join('\n');
 
   it('脚手架整块删（连中间那行别人的话和 openid 一起）、图片行换成占位、@marker 与信封标记删净', () => {
     const out = scrubForReturn(WITH_IMAGE);
@@ -229,7 +229,7 @@ describe('scrubForReturn / containsHostLeak（§9 测试 3）', () => {
   });
 
   it('兜底剪绝对路径：前面漏了也不让 /home/... 出门', () => {
-    expect(scrubForReturn('见 /home/huwp/projects/qq-bot/README.md')).toBe('见 [路径已隐藏]');
+    expect(scrubForReturn('见 /home/anon/projects/qq-bot/README.md')).toBe('见 [路径已隐藏]');
   });
 
   it('单个 /embed 这类词不误伤', () => {
@@ -237,7 +237,7 @@ describe('scrubForReturn / containsHostLeak（§9 测试 3）', () => {
   });
 
   it('连续调用不漏检（带 g 的共享正则会因 lastIndex 漂移漏判）', () => {
-    const leaky = '那句 /home/huwp/.dsh-qqbot-akane/media/a_1_x.png 里是什么';
+    const leaky = '那句 /home/anon/.dsh-qqbot-akane/media/a_1_x.png 里是什么';
     for (let i = 0; i < 3; i += 1) {
       expect(containsHostLeak(scrubForReturn(leaky))).toBe(false); // 已洗干净
       expect(containsHostLeak(leaky)).toBe(true);

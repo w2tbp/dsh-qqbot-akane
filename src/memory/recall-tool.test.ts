@@ -194,7 +194,7 @@ describe('返回体清洗（§9 测试 3）', () => {
     '  小明 (o777abc): 这猫粮多少钱',
     '[Chat history ends]',
     '[Current message] 那张图里的猫粮',
-    '  └ Image: /home/huwp/.dsh-qqbot-akane/media/a_1_x.png',
+    '  └ Image: /home/anon/.dsh-qqbot-akane/media/a_1_x.png',
   ].join('\n');
 
   it('T1 窗口里的图片行、群历史、openid 一个字符都不出门', async () => {
@@ -214,7 +214,7 @@ describe('返回体清洗（§9 测试 3）', () => {
 
   it('清洗规则漏了时走整条丢弃，而不是发半句带路径的（LEAK_DROPPED）', async () => {
     // 图片标记嵌在一行中间 —— MEDIA_LINE 的整行规则按设计匹配不到，兜底闸必须接住
-    await seed([{ key: 's1:1-1', text: '她说 └ Image: /home/huwp/.dsh-qqbot-akane/media/a_1_x.png 那句关于猫粮' }]);
+    await seed([{ key: 's1:1-1', text: '她说 └ Image: /home/anon/.dsh-qqbot-akane/media/a_1_x.png 那句关于猫粮' }]);
     const out = await recallOnce('猫粮', deps({ readWindow: async () => undefined }));
     expect(out.text).not.toContain('/home/');
     expect(out.text).not.toContain('└ Image:');
@@ -224,7 +224,7 @@ describe('返回体清洗（§9 测试 3）', () => {
   it('回读窗口失败 → 回落索引文本，不抛也不吭出宿主原文（§9 测试 4）', async () => {
     await seed([{ key: 's1:1-1', text: '猫粮两百多一包' }]);
     const readWindow = async (): Promise<TranscriptEvent[]> => {
-      throw Object.assign(new Error("scandir '/home/huwp/.dsh/sessions SENTINEL'"), { code: 'EACCES' });
+      throw Object.assign(new Error("scandir '/home/anon/.dsh/sessions SENTINEL'"), { code: 'EACCES' });
     };
     const out = await recallOnce('猫粮', deps({ readWindow }));
     expect(out.text).toContain('猫粮两百多一包');
@@ -283,7 +283,7 @@ describe('限额（§9 测试 5 / 6）', () => {
 describe('降级与失败语义（§9 测试 10）', () => {
   it('服务不可达 → 字面档照常可用，措辞写明只按字面找了，且不产生 ❌', async () => {
     await seed([{ key: 's1:1-1', text: '猫粮两百多一包' }]);
-    vi.mocked(fetch).mockRejectedValue(new Error('ECONNREFUSED /home/huwp'));
+    vi.mocked(fetch).mockRejectedValue(new Error('ECONNREFUSED /home/anon'));
     const out = await recallOnce('猫粮', deps());
     expect(out.hits).toBe(1);
     expect(out.degraded).toBe(true);

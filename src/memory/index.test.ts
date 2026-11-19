@@ -25,7 +25,7 @@ vi.mock('./embed-client.ts', () => ({ probeEmbedHealth: doubles.probeEmbedHealth
 
 const { startMemoryFeature, embedConfigOf, EMBED_CAPABILITY_UP, EMBED_CAPABILITY_DOWN } = await import('./index.ts');
 
-const CWD = '/home/huwp/.dsh-qqbot-akane/workspace';
+const CWD = '/home/anon/.dsh-qqbot-akane/workspace';
 
 function memoryConfig(over: Partial<MemoryConfig> = {}): MemoryConfig {
   return {
