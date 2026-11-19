@@ -125,6 +125,29 @@ const POINTS: ForkPoint[] = [
     must: [/WAKE_LIST_KEYS = \['wakeWords', 'wakeWordsWeak', 'wakeWordExcludes'\]/, /群聊唤醒词/],
   },
   {
+    file: 'src/client/config-panel.ts',
+    why: '窗口四栏进设置页（延迟是用户唯一能自己调的东西）：范围表、秒换算、当场校验（四栏总被默认值预填，清空=误删要拦），少一边就是界面能填出非法值',
+    must: [
+      /QUIET_WINDOW_FIELDS = \[/,
+      /碎片静默窗口/,
+      /function windowFormError/,
+      /不能留空，填 0 表示关闭/,
+      /if \(raw === ''\) continue;/,
+      /QuietWindowKey, string>>/,
+    ],
+  },
+  {
+    file: 'src/setup/bind-routes.ts',
+    why: '窗口四栏的服务端一侧：白名单、逐键 Schema、跨键守卫三样缺一不可 —— 只有设置页能同时改这几栏，而「窗口开着 + 硬顶 0」这个组合会让中间件挂载即抛、整个插件下线',
+    must: [
+      /\.\.\.QUIET_WINDOW_KEYS,/,
+      /quietWindowMs: integerSchema\(/,
+      /quietWindowMaxFragments: integerSchema\(/,
+      /function quietWindowComboError/,
+      /quietWindowComboError\(\{ \.\.\.\(options\.currentConfig\?\.\(\) \?\? \{\}\), \.\.\.validated \}\)/,
+    ],
+  },
+  {
     file: 'src/index.ts',
     why: '插件身份与官方隔离，同 id 会互相顶掉',
     must: [/export const name = 'im-qqbot-akane'/],
@@ -159,6 +182,8 @@ const BUILT: Array<[string, RegExp]> = [
   ['lib/gateway/bootstrap.js', /startProbeCleanup/],
   ['lib/session/session-manager.js', /insertPersonaSection/],
   ['lib/client.js', /wakeWords/],
+  ['lib/client.js', /quietWindowMaxFragments/],
+  ['lib/setup/bind-routes.js', /quietWindowComboError/],
 ];
 
 /** 身份残留：漏一处就与原版同名顶掉，历史上真坏过（回滚文件后缀那次） */

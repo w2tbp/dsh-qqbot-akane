@@ -481,6 +481,105 @@ describe('bind-routes', () => {
     expect(json(res2)).toMatchObject({ error: expect.stringContaining('超过') });
   });
 
+  it('POST config：静默窗口四栏接受整数并以数字形态落库', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const { routes } = createHarness({ onUpdateConfig: (c) => { writes.push(c); return true; } });
+    const res = fakeRes();
+    await invoke(
+      routes.get(BIND_CONFIG_PATH),
+      fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' },
+        '{"quietWindowMs":8000,"quietWindowEmptyShellMs":0,"quietWindowMaxWaitMs":20000,"quietWindowMaxFragments":3}'),
+      res,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(writes[0]).toEqual({
+      quietWindowMs: 8000,
+      quietWindowEmptyShellMs: 0,
+      quietWindowMaxWaitMs: 20000,
+      quietWindowMaxFragments: 3,
+    });
+  });
+
+  it('POST config：窗口栏拒非整数、负数与越界（YAML 里不许出现字符串数字）', async () => {
+    const cases = [
+      '{"quietWindowMs":"12000ms"}',
+      '{"quietWindowMs":-1}',
+      '{"quietWindowMs":600000}',
+      '{"quietWindowMaxWaitMs":1200.5}',
+      '{"quietWindowMaxFragments":0}',
+      '{"quietWindowMaxFragments":99}',
+    ];
+    for (const body of cases) {
+      const { routes } = createHarness({ onUpdateConfig: () => true });
+      const res = fakeRes();
+      await invoke(
+        routes.get(BIND_CONFIG_PATH),
+        fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' }, body),
+        res,
+      );
+      expect(res.statusCode, body).toBe(400);
+    }
+  });
+
+  it('POST config：数字字符串规范化为数字（"8000" 落库是 8000）', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const { routes } = createHarness({
+      currentConfig: () => ({ quietWindowMs: 12000, quietWindowMaxWaitMs: 30000 }),
+      onUpdateConfig: (c) => { writes.push(c); return true; },
+    });
+    const res = fakeRes();
+    await invoke(
+      routes.get(BIND_CONFIG_PATH),
+      fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' }, '{"quietWindowMs":"8000"}'),
+      res,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(writes[0]).toEqual({ quietWindowMs: 8000 });
+  });
+
+  it('POST config：窗口开着而硬顶为 0 的组合被拦（该组合挂载即抛），且不落盘', async () => {
+    const writes: Array<Record<string, unknown>> = [];
+    const run = async (body: string, current: Record<string, unknown>): Promise<{ status: number; body: unknown }> => {
+      const { routes } = createHarness({ currentConfig: () => current, onUpdateConfig: (c) => { writes.push(c); return true; } });
+      const res = fakeRes();
+      await invoke(
+        routes.get(BIND_CONFIG_PATH),
+        fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' }, body),
+        res,
+      );
+      return { status: res.statusCode, body: json(res) };
+    };
+
+    // 本次提交里同时关掉硬顶
+    const both = await run('{"quietWindowMs":8000,"quietWindowMaxWaitMs":0}', {});
+    expect(both.status).toBe(400);
+    expect(both.body).toMatchObject({ ok: false, error: expect.stringContaining('硬顶') });
+
+    // 只改静默窗口，硬顶从当前生效值里读出来是 0
+    const merged = await run('{"quietWindowMs":8000}', { quietWindowMs: 0, quietWindowMaxWaitMs: 0 });
+    expect(merged.status).toBe(400);
+
+    // 只关硬顶，静默窗口仍开着
+    const capOff = await run('{"quietWindowMaxWaitMs":0}', { quietWindowMs: 12000, quietWindowMaxWaitMs: 30000 });
+    expect(capOff.status).toBe(400);
+
+    expect(writes).toEqual([]);
+  });
+
+  it('POST config：空壳值不大于静默值只算效果打折，不拦（那是用户的选择）', async () => {
+    const { routes } = createHarness({
+      currentConfig: () => ({ quietWindowMs: 12000, quietWindowMaxWaitMs: 30000 }),
+      onUpdateConfig: () => true,
+    });
+    const res = fakeRes();
+    await invoke(
+      routes.get(BIND_CONFIG_PATH),
+      fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' }, '{"quietWindowEmptyShellMs":5000}'),
+      res,
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
   it('跨站 Origin：403（state 与 manual 均拦截）', async () => {
     const { routes } = createHarness();
     const res1 = fakeRes();

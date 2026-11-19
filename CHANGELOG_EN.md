@@ -6,6 +6,20 @@ This file records significant dsh-qqbot-akane updates from a product perspective
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+Window length is a cost added directly to every single reply she makes, so this knob should not live only in YAML.
+
+### Added
+
+- **A fragment quiet-window group on the settings page**: `quietWindowMs`, `quietWindowEmptyShellMs`, `quietWindowMaxWaitMs` and `quietWindowMaxFragments` are now editable in the UI, each field showing its current value converted to seconds. Saving writes the fork entry in the profile and hot-reloads, so no manual YAML and no process restart. All four come pre-filled from the config defaults, and **clearing one is refused on the spot** - switch a window off by typing 0, because a silently dropped field is far harder to diagnose than a blocked save.
+
+### Notes
+
+- **The server rejects the combination window-on plus hard-cap-zero before writing anything**: that shape makes the quiet-window middleware throw while mounting and takes the whole plugin down, and the settings page is the only place where both fields can be edited together. An empty-shell value that is not larger than the short window only wastes itself (it replaces the short window instead of adding to it) rather than breaking anything, so it stays allowed and the UI copy says so.
+- The bounds (0-120000 ms, 1-20 fragments) exist once on the server and once in the client; the server is the boundary, the client copy only saves a round trip.
+- Production now runs an empty-shell window of 20000 instead of 0 (11-19 afternoon); still unverified on a real device.
+
 ## [0.5.5__0.2] - 2026-11-19
 
 One thought often arrives from QQ as several separate messages. This round handles the ingestion half of that problem; the recall half is sequenced later in the spec.
