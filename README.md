@@ -25,7 +25,7 @@
 
 ## 关于本 fork
 
-本仓库是 `@tencent-connect/dsh-qqbot@0.5.5` 的本地 fork，改动集中在**触发**、**人格**和**群历史的媒体可见性**三处行为，身份全部重命名，**可与原版同时安装在同一个 profile 里互不干扰**（用 `disabled: true` 切换谁在跑）。
+本仓库是 `@tencent-connect/dsh-qqbot@0.5.5` 的本地 fork，改动集中在**触发**、**人格**和**群历史的媒体可见性**三处行为，另有一层**默认关闭**的记忆库（§记忆库）；身份全部重命名，**可与原版同时安装在同一个 profile 里互不干扰**（用 `disabled: true` 切换谁在跑）。
 
 | 身份位 | 原版 | 本 fork |
 |---|---|---|
@@ -37,8 +37,9 @@
 | 数据目录 | `~/.dsh-qqbot` | `~/.dsh-qqbot-akane` |
 | 绑定路由 | `/qqbot/im-qqbot/*` | `/qqbot/im-qqbot-akane/*` |
 | 视觉 / 发文件工具 | `qqbot_describe_image` / `qqbot_send_file` | `akane_describe_image` / `akane_send_file` |
+| 记忆召回工具 | 无 | `akane_recall`（`memory.enabled`，默认关） |
 
-新增能力：群聊唤醒词（§群聊唤醒词，三张表可在设置页直接编辑）、隐式唤醒也带群历史、群历史里的图片可被她看到（§群历史图片）、一句话被拆成几条发时的碎片静默窗口（§碎片静默窗口，四栏可在设置页直接改）、人格文件化热加载（§人格文件）、黑名单硬拦截（§访问控制）、表情包（梗图）回复能力。
+新增能力：群聊唤醒词（§群聊唤醒词，三张表可在设置页直接编辑）、隐式唤醒也带群历史、群历史里的图片可被她看到（§群历史图片）、一句话被拆成几条发时的碎片静默窗口（§碎片静默窗口，四栏可在设置页直接改）、人格文件化热加载（§人格文件）、黑名单硬拦截（§访问控制）、表情包（梗图）回复能力，以及默认关闭的记忆库（§记忆库，需自备本机常驻 embedding 服务）。
 
 ```bash
 pnpm install && pnpm build
@@ -257,6 +258,26 @@ SDK 的历史条目只有文本位，所以群里发的图片一旦进历史就�
 | `sendFile.restrictPaths` | boolean | `true` | 是否启用路径白名单（仅 media + cwd + extraRoots） |
 | `sendFile.extraRoots` | string[] | `[]` | 额外允许访问的根目录 |
 
+### 记忆库（memory）
+
+跨轮、跨重启把她**自己说过的话**按语义找回来。五层里这一层是 T2：一个可丢弃的派生索引 + 一个召回工具，正本始终是宿主的转录（T1），插件只读不写。
+
+| 配置 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `memory.enabled` | boolean | `false` | 总开关。关闭时不建 `index/`、不起后台作业、不注册工具、不打日志 |
+| `memory.embedBaseUrl` | string | `http://127.0.0.1:8765` | 本机 embedding 服务基址，**只接受回环**，其他地址客户端直接拒绝 |
+| `memory.timeoutMs` | number | `8000` | 单次嵌入往返超时(ms) |
+| `memory.dims` | number | `512` | 向量维度，与模型绑定；与 `meta.json` 不符即整体重建 |
+| `memory.syncIntervalMs` | number | `600000` | 后台同步间隔(ms)，首轮即全量回填 |
+
+- **它的能力上限由 T1 决定，不由检索决定**：没点她名、也没被她那一轮拼进上下文的话，转录里就没有——任何检索都变不出来。记忆库解决的是「有，但搜不到 / 搜不准」，**不解决**「根本没存」。
+- **需要用户自己起的常驻服务**：`embed-service/`（独立进程，模型 `bge-small-zh-v1.5` 的 ONNX q8，只绑 `127.0.0.1`）。插件**不 spawn、不自愈、不 kill**，装法与启停见 [`embed-service/README.md`](./embed-service/README.md)。服务不可达时召回降级成只走字面档，**不存在**降级到远程 embedding API 的路径。
+- **索引三文件在 `~/.dsh-qqbot-akane/index/`**：`chunks.jsonl`（文本 + 元数据）、`vectors.f32.bin`（同序定长）、`meta.json`（schema / 模型 / 维度 / 同步游标）。整目录删掉可全量重建，插件照常启动。
+- **隐私边界 = chunk 写入时落地的 `peer`**，召回只认同 peer，**没有跨 peer 开关也不按会话目录放宽**（同一 sessions 根目录下另有别人的转录，含用户本人的开发对话）；解析不出归属的转录只进索引、永不可召回。
+- **返回体不含主机路径 / `└ Image:` 行 / session id / openid / appId**，任何失败都回「没查到（…）」这一族固定措辞（按成因分四条，都不带错误原文），异常绝不逃出 `execute`（否则会变成 QQ 里的 `❌ 工具 akane_recall 执行失败`）。
+- **chunk 边界与 `quietWindowMs` 同源同值**——折叠说一条、chunk 就说一条，两头各定一套阈值必然对不上。窗口那个值本身还是临时值（见上），这里继承同一个标记。
+- **限额与相似度阈值全是临时值**：6 片段 / 单片段 600 字符 / 返回体 3000 字符 / 语义档下限 0.45。**离线召回质量数值不存在**，定它们需要 ≥20 条真实问法（用户提供），在此之前 `memory.enabled` 保持关闭。链路本身**仅单元测试覆盖**，QQ 端的六条手动验收一条没跑过。
+
 ## 内置命令
 
 | 命令 | 说明 |
@@ -330,12 +351,24 @@ src/
 │   ├── quiet-window.ts         # 空闲静默窗口（第 4.6 步，门控之前）
 │   ├── fragment-merge.ts       # 分片合并（归属 / 附件 / msg_id 锚点）
 │   └── attachment.ts           # 附件处理
+├── memory/                     # 记忆库（T2 索引 + 召回，默认关）
+│   ├── index.ts                # 唯一挂点与总开关（关闭时第一件事都不做）
+│   ├── chunking.ts             # 转录事件 → chunk（边界与 quietWindowMs 同源）
+│   ├── index-store.ts          # index/ 三文件的读写与整体重建判定
+│   ├── transcript-source.ts    # 宿主服务面白名单 + 取原文 + 返回前脱敏
+│   ├── backfill.ts             # 后台增量同步（不在中间件链里，不占回复延迟）
+│   ├── embed-client.ts         # /embed 客户端（非回环直接拒绝）
+│   ├── peer.ts                 # 隐私边界的唯一正本（解析不出即 fail-closed）
+│   ├── retrieval.ts            # hybrid：逐词 AND + 余弦 → RRF 融合 → 限额
+│   └── recall-tool.ts          # `akane_recall` 工具定义与失败措辞
 ├── shared/                     # 共享工具
 │   ├── utils.ts                # 通用函数
 │   ├── scope.ts                # scope/peer 提取
 │   └── send-helper.ts          # 分块发送
 └── commands/                   # 斜杠命令
 ```
+
+顶层还有一目录 `embed-service/`：本机常驻 embedding 微服务（独立 node 进程 + `install.sh` 拉权重），不在插件进程内，也不随插件启停。
 
 ## 会话路由
 
@@ -353,6 +386,9 @@ sessionKey: `qqbot:${appId}:${scope}:${peerId}`，新会话铸造 UUID 会话 id
 - **人格与代码分工** — 语气/身份是可热加载的 `persona/*.md`，硬规则（黑名单零输出）写在中间件里，不指望 prompt 自律
 - **不赌外部时效** — 官方没承诺的下发链接有效期不去猜，改成记录时下载；给她的路径必须当场查得到文件，宁可降级成标签也不给死路径
 - **词表即配置** — 唤醒词、persona 路径全在 `cordis.patch.yml`，改配置不改代码、不重新构建
+- **默认关的能力必须真的关** — 记忆库的开关只在挂载函数第一行判一次：关闭时不建目录、不起作业、不注册工具，`tools.register` 收到的工具名集合与没有这个功能时逐字节一致
+- **隐私边界写在写入时** — chunk 落地就带 `peer`，召回只认同 peer 且不按会话目录放宽；解析不出归属的转录只进索引、永不可召回
+- **推理不进插件进程** — ONNX 那 300MB 量级常驻内存与几十毫秒的批量推理归 `embed-service/` 那个独立进程，启停归用户；插件只探测、只调用，不可达就降级字面档
 - **Markdown 输出** — 回复以 Markdown 格式发送，支持代码块/表格感知切分
 - **图片理解** — 支持 `akane_describe_image` 视觉理解，可分析用户发送的图片
 - **附件发送** — 支持 `akane_send_file` 将本地文件发送给用户（默认启用路径白名单）

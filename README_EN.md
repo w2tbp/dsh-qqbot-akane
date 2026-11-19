@@ -25,7 +25,7 @@ Scan to join the QQ group / channel
 
 ## About this fork
 
-This repo is a local fork of `@tencent-connect/dsh-qqbot@0.5.5`. Changes concentrate in three behaviours — **triggering**, **persona**, and **media visibility in group history**; every identity slot is renamed, so **the fork and the original can be installed in the same profile without interference** (flip which one runs with `disabled: true`).
+This repo is a local fork of `@tencent-connect/dsh-qqbot@0.5.5`. Changes concentrate in three behaviours — **triggering**, **persona**, and **media visibility in group history** — plus an **opt-in** memory stack (see "Memory stack") that changes nothing until you enable it; every identity slot is renamed, so **the fork and the original can be installed in the same profile without interference** (flip which one runs with `disabled: true`).
 
 | Identity slot | Original | This fork |
 |---|---|---|
@@ -37,8 +37,9 @@ This repo is a local fork of `@tencent-connect/dsh-qqbot@0.5.5`. Changes concent
 | data dir | `~/.dsh-qqbot` | `~/.dsh-qqbot-akane` |
 | bind routes | `/qqbot/im-qqbot/*` | `/qqbot/im-qqbot-akane/*` |
 | vision / send-file tools | `qqbot_describe_image` / `qqbot_send_file` | `akane_describe_image` / `akane_send_file` |
+| memory recall tool | none | `akane_recall` (behind `memory.enabled`, off by default) |
 
-New capabilities: group wake words (three tables, editable right on the settings page), history carried on implicit wake-up, images in group history are visible to her (see "Group history images"), persona as hot-reloaded files, blacklist enforced in code, meme-image replies, and a quiet window that folds one thought split across several QQ messages into a single turn (see "Fragment quiet window").
+New capabilities: group wake words (three tables, editable right on the settings page), history carried on implicit wake-up, images in group history are visible to her (see "Group history images"), persona as hot-reloaded files, blacklist enforced in code, meme-image replies, a quiet window that folds one thought split across several QQ messages into a single turn (see "Fragment quiet window"), and an opt-in memory stack (see "Memory stack") that needs a local embedding service you start yourself.
 
 ```bash
 pnpm install && pnpm build
@@ -257,6 +258,26 @@ SDK history entries have a text slot only, so an image posted in a group collaps
 | `sendFile.restrictPaths` | boolean | `true` | Enable path allowlist (media + cwd + extraRoots only) |
 | `sendFile.extraRoots` | string[] | `[]` | Extra allowed root directories |
 
+### Memory stack (memory)
+
+Lets her find back things **she herself said** across turns and across restarts, by meaning rather than by keyword. This is layer T2 of the five-layer design: a disposable derived index plus one recall tool. The source of truth stays the host's transcripts (T1) — the plugin only ever reads them.
+
+| Config | Type | Default | Description |
+|------|------|--------|------|
+| `memory.enabled` | boolean | `false` | Master switch. When off: no `index/` directory, no background job, no registered tool, no log line |
+| `memory.embedBaseUrl` | string | `http://127.0.0.1:8765` | Local embedding service base URL — **loopback only**, the client refuses anything else outright |
+| `memory.timeoutMs` | number | `8000` | Per-request embedding timeout (ms) |
+| `memory.dims` | number | `512` | Vector dimensions, bound to the model; a mismatch with `meta.json` triggers a full rebuild |
+| `memory.syncIntervalMs` | number | `600000` | Background sync interval (ms); the first pass backfills everything |
+
+- **Its ceiling is set by T1, not by retrieval**: a group message that neither mentioned her nor got folded into the context of a turn she answered simply isn't in the transcript, and no search can conjure it. The memory stack fixes "it's there but I can't find it / can't find the right thing", **not** "it was never stored".
+- **Needs a resident service the user starts**: `embed-service/` (a separate Node process, ONNX q8 build of `bge-small-zh-v1.5`, bound to `127.0.0.1` only). The plugin **never spawns, self-heals, or kills** it; install and start/stop instructions live in [`embed-service/README.md`](./embed-service/README.md). When the service is unreachable, recall degrades to the literal lane — there is **no** fallback path to a remote embedding API.
+- **Three files under `~/.dsh-qqbot-akane/index/`**: `chunks.jsonl` (text + metadata), `vectors.f32.bin` (same order, fixed width), `meta.json` (schema / model / dims / sync cursor). Delete the whole directory and it rebuilds; the plugin starts fine either way.
+- **The privacy boundary is the `peer` written at index time.** Recall only ever matches the same peer, there is no cross-peer switch, and it never widens by working directory (other people's transcripts — including the user's own development sessions — live under the same sessions root). Transcripts whose owner can't be resolved are indexed but permanently unrecallable.
+- **Return bodies never contain** host paths, `└ Image:` lines, session ids, openids or appIds. Every failure answers with the "not found (…)" family of fixed strings (one per cause, none carrying the underlying error), and no exception is allowed to escape `execute` — that would surface in QQ as `❌ tool akane_recall failed`.
+- **Chunk boundaries share one value with `quietWindowMs`** — if folding says one message and chunking says two, the two halves can never be reconciled. That window value is itself still provisional (see above) and chunking inherits the same marker.
+- **Every limit and the similarity floor are provisional**: 6 fragments / 600 chars per fragment / 3000 chars per response / 0.45 semantic floor. **No offline retrieval-quality numbers exist**; setting them requires ≥20 real user queries (from the user), so `memory.enabled` stays off until then. The chain is **covered by unit tests only** — none of the six manual QQ-side acceptance checks has been run.
+
 ## Built-in Commands
 
 | Command | Description |
@@ -330,12 +351,24 @@ src/
 │   ├── quiet-window.ts         # Idle quiet window (step 4.6, before the gate)
 │   ├── fragment-merge.ts       # Fragment merge (attribution / attachments / msg_id anchor)
 │   └── attachment.ts           # Attachment handling
+├── memory/                     # Memory stack (T2 index + recall, off by default)
+│   ├── index.ts                # The single mount point and master switch (off = does nothing at all)
+│   ├── chunking.ts             # Transcript events → chunks (boundary shared with quietWindowMs)
+│   ├── index-store.ts          # The three index files + rebuild decisions
+│   ├── transcript-source.ts    # Host service-surface allowlist, original text, scrubbing
+│   ├── backfill.ts             # Background incremental sync (not in the middleware chain)
+│   ├── embed-client.ts         # /embed client (non-loopback endpoints refused outright)
+│   ├── peer.ts                 # The single source of the privacy boundary (fail-closed)
+│   ├── retrieval.ts            # Hybrid: per-token AND + cosine → RRF fusion → limits
+│   └── recall-tool.ts          # `akane_recall` definition and failure wording
 ├── shared/                     # Shared utilities
 │   ├── utils.ts                # Common helpers
 │   ├── scope.ts                # scope/peer extraction
 │   └── send-helper.ts          # Chunked send
 └── commands/                   # Slash commands
 ```
+
+At the top level there is also `embed-service/`: the local resident embedding micro-service (its own Node process plus an `install.sh` that fetches the weights). It is not part of the plugin process and does not start or stop with it.
 
 ## Session Routing
 
@@ -353,6 +386,9 @@ Resolution strategy: in-process reuse → persisted resume → fresh create.
 - **Persona vs code** — tone and identity live in hot-reloaded `persona/*.md`; hard rules (blocklist = zero output) live in middleware, because self-restraint in a prompt is only probabilistic
 - **No gambling on external expiry** — QQ never promised a link lifetime, so media is downloaded at record time instead; every path handed to her is checked to exist right then, degrading to a label rather than passing a dead path she would turn into a QQ-visible tool error
 - **Vocabulary is configuration** — wake words and persona paths live in `cordis.patch.yml`; changing them changes neither code nor the build
+- **Off really means off** — the memory switch is tested in exactly one place, the first line of its mount function: no directory, no background job, no registered tool, and the set of tool names reaching `tools.register` is byte-for-byte what it was before the feature existed
+- **The privacy boundary is written at index time** — every chunk carries its `peer`, recall matches that peer only and never widens by working directory; transcripts whose owner can't be resolved stay unrecallable
+- **No inference inside the plugin process** — the ~300MB resident model and its tens-of-milliseconds batches belong to the separate `embed-service/` process, which the user starts and stops; the plugin only probes, only calls, and degrades to the literal lane when the service is down
 - **Markdown output** — replies sent as Markdown with code-block/table-aware chunking
 - **Image understanding** — supports `akane_describe_image` vision to analyze images sent by users
 - **File sending** — supports `akane_send_file` to send local files to users (path allowlist enabled by default)
