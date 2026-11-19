@@ -140,6 +140,10 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot-akane/cordis.dev.yml
 | `maxQueue` | number | `20` | 并发队列最大长度 |
 | `historyLimit` | number | `10` | 群历史缓冲条数 |
 | `askTimeoutMs` | number | `300000` | 待答问题超时(ms)，默认 5 分钟（ask_user_question） |
+| `quietWindowMs` | number | `0` | 空闲静默窗口(ms)：她空闲时攒同一个人的连续分片，只答一次。`0` = 关闭（链序与无此功能时逐字节一致）。**开启前须有现网到达间隔样本**，见 spec §5 D2 |
+| `quietWindowEmptyShellMs` | number | `0` | 空壳分片（只有 @/称呼、没正文）的长窗口(ms)，`0` = 沿用 `quietWindowMs` |
+| `quietWindowMaxWaitMs` | number | `0` | 单个窗口从首片起的最长等待硬顶(ms)；开启窗口时必须 > 0，否则装载即报错 |
+| `quietWindowMaxFragments` | number | `4` | 单个窗口最多攒几条分片，达到即立即放行（安全阀） |
 | `showToolResults` | boolean | `false` | 是否展示工具调用成功结果（错误始终展示） |
 | `debug` | boolean | `false` | 调试模式 |
 
@@ -186,6 +190,21 @@ config:
 ```
 
 拼合顺序为 `persona 文件 → 课程 → 遗留 groupPrompt/directPrompt`，注入位置在宿主的 `deployment:persona-prefix` 之后（不是整篇 prompt 末尾）。`persona/README.md` 写了文案纪律：行为约束 + few-shot 为主，绝不列禁词清单。
+
+### 到达间隔插桩（arrivalProbe）
+
+| 配置 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `arrivalProbe.enabled` | boolean | `false` | 是否记录每条消息的到达时刻（给 `quietWindowMs` 定默认值用） |
+| `arrivalProbe.keepDays` | number | `30` | 插桩文件保留天数，0=永不过期 |
+
+静默窗口的长度加在她**每一次**回复的延迟上，所以默认值必须由现网实测数据决定，而不是拍一个数。开启插桩后，每条入站消息落一行到 `~/.dsh-qqbot-akane/arrival/YYYY-MM-DD.jsonl`，字段只有 `messageId` + 本地接收毫秒 + 桶键散列 + 有没有点名她——**正文与 openid 都不写**，所以这份落盘不需要脱敏环节。出数：
+
+```bash
+node scripts/arrival-report.mjs        # 报 p50/p90/p95 与样本量
+```
+
+口径固定在 `src/features/arrival-stats.ts`（同桶相邻两条、间隔 < 120s、样本 < 300 对只出「继续攒」）。关闭态不挂载中间件、不起清理定时器，目录都不会被创建。攒够样本前 `quietWindowMs` 保持 `0`。
 
 ### 富媒体理解（media）
 

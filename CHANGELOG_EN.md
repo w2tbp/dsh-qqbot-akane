@@ -6,6 +6,33 @@ This file records significant dsh-qqbot-akane updates from a product perspective
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+One thought often arrives from QQ as several separate messages. This round handles the ingestion half of that problem; the recall half is sequenced later in the spec.
+
+### Fixes
+
+- **A batch folded by the quiet window is no longer dropped by the mention gate.** Production evidence on 11-19 caught the worst shape: `@her + one line` followed by two more lines produced **zero reply at all**. The window must strip the `<@!appId>` marker from the naming fragment (that fragment's chain ends inside the window), while the survivor is an un-@'d continuation — so all three of the gate's explicit-mention tests failed and the whole batch was treated as chatter nobody addressed. Flushing now leaves a "this batch was addressed" marker and the gate consults it before falling back to the wake-word tables. The marker lives on `state` only; no fake @-marker is injected into her prompt. Single-fragment batches are untouched, so the disabled state stays byte-identical.
+- **Fragments folded into a turn no longer appear twice in that same turn.** Step 4 appends each message to the group history independently, so after a merge the same sentence rendered once under `[Chat history begins]` and once in the batch. Folded fragments are now removed from the survivor's history snapshot by `messageId`.
+- **Fragments buffered while she is busy now anchor the passive reply to the `msg_id` of the newest message.** The SDK default merge kept the oldest one, i.e. the credential closest to expiry.
+- **Merging no longer loses cross-speaker attribution.** Fragments used to be concatenated into a single body rendered under one sender, so "three from Zhang San + three from Li Si" read as "one person said six things". Same-sender fragments still join plainly; different senders are split into segments, each labelled `nickname (openid)`.
+- **Merging no longer drops attachments.** Only text-bearing fragments contributed their attachments, so an image-only message disappeared entirely. All fragments are now collected. **This is a code-level correctness fix**: production evidence on 11-19 shows the reported "she ignored my image" has a different cause (see Notes).
+
+### Added
+
+- **Idle quiet window** (new middleware step 4.6, before the mention gate): consecutive fragments from the same sender while she is idle are folded into one turn and answered once. Bucketed per chat + sender; only a fragment that itself names her may open a bucket. **Off by default** (`quietWindowMs = 0` skips mounting entirely, keeping the chain byte-identical to before) — the window is added to *every* reply latency, so the default value waits for real arrival-interval samples instead of a guess. Empty-shell fragments (a bare @) use a longer window, bounded by `quietWindowMaxWaitMs` and `quietWindowMaxFragments`; slash commands and pending-question answers pass through immediately.
+- Config keys: `quietWindowMs` / `quietWindowEmptyShellMs` / `quietWindowMaxWaitMs` / `quietWindowMaxFragments`.
+- **Arrival-interval probe** (`arrivalProbe`, off by default): every inbound message appends one line with `messageId` + local receive ms + bucket-key hash + whether it named her. **No text, no openid** — the file needs no redaction. `node scripts/arrival-report.mjs` prints p50/p90/p95 with the sample size; that is the only input allowed to set the window default above. When disabled the middleware is not mounted, no timer runs and the directory is never created.
+
+### Notes
+
+- **Production evidence (11-19, old-code baseline):** an image sent *separately* right after `@her` formed no turn at all — it carries no mention, so the gate drops it at step 5. An image sent *in the same message as the @* was always fine (queued to the end of the busy turn, path intact, she read it). So the cure is the quiet window above — not the merge fix. The merge fix still has not been exercised in production: it needs ≥2 fragments buffered while she is busy.
+- Same run: real fragment gaps reached **6–9 seconds** (bare @ followed by an image), so the empty-shell window needs its own value (~10s) rather than the short window's percentile.
+- Also first production sighting of the history `[图片]` **degradation** branch: a TTL-expired image rendered as a placeholder instead of a dead path.
+- **The window length finally has real data**: the probe accumulated 26 same-bucket adjacent inbound pairs (one sender, deliberately burst-typed on the morning of 11-19) — **p50 = 10.2s**, dense band 2–17s. The same metric reverse-engineered from chat transcripts over the same period reads p50 = 36.2s / p90 = 92.6s, because transcripts only contain messages that formed a *turn* — un-named continuations are invisible there. That measurement is systematically inflated and **must not be used to size the window**; it is precisely why the probe exists.
+- Production now runs **`quietWindowMs = 12000`** as a **provisional** value (`quietWindowMaxWaitMs = 30000`, `quietWindowMaxFragments = 4`, `quietWindowEmptyShellMs = 0` inheriting the short window). Provisional, not settled: 26 pairs is far below the 300-pair gate, and the "how long after naming her" segment is contaminated — the window was off during sampling, so she answered instantly and the observed gaps are reactions to her answer rather than the rhythm of one thought split apart. Hence no separate empty-shell value this time. The profile says so in place.
+- Design, the three decisions taken, and open evidence items: `docs/specs/2026-11-18-akane-fragment-merge-and-recall.md`. Merge-replay landing point: `../upstream-merge.md` §4 item 6 (kept outside the repo).
+
 ## [0.5.5__0.1] - 2026-11-16
 
 Identity is now fully separate from the official `@tencent-connect/dsh-qqbot`. Previously only the plugin id, routes and tool names diverged; the package name and display metadata were still copied verbatim, so the plugins page showed two entries with the same title, same icon and same description — indistinguishable from one plugin.
