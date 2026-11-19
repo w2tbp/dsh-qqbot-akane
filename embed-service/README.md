@@ -118,6 +118,9 @@ node selftest.mjs           # 相关句对 vs 无关句对，必须 minRelated >
 大小写、空白、码点 >64k 全错），所以这里用官方纯 JS `@huggingface/tokenizers`
 （同一批 0 错）。升级 onnxruntime / tokenizers、换模型、动权重，都要先跑它。
 
+上面那份 349 行基准是产物，**生成器和两条比对通路在 [`tokenizer-probe/`](./tokenizer-probe/README.md)**
+（此前只在 `/tmp` 里且路径写死，重启即失）。重跑法与今天对上的三个数都写在那份 README 里。
+
 ## 实测数字（11-19，本机单线程 q8）
 
 | 项 | 实测 |

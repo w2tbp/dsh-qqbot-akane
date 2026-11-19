@@ -6,6 +6,10 @@ docs/
 *.tsbuildinfo
 cordis.dev.yml
 
+# 对拍生成器的候选输出（重跑 gen_golden.py 落在这里，确认无误才手工覆盖 tokenizer-golden.json）
+embed-service/tokenizer-probe/golden.json
+embed-service/tokenizer-probe/golden-ref-dump.json
+
 # lib/ 构建产物入库（GitHub 安装开箱即用），但排除类型与 sourcemap
 lib/**/*.d.ts
 lib/**/*.map
