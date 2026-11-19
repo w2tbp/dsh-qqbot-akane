@@ -6,7 +6,7 @@ This file records significant dsh-qqbot-akane updates from a product perspective
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.5.5__0.2] - 2026-11-19
 
 One thought often arrives from QQ as several separate messages. This round handles the ingestion half of that problem; the recall half is sequenced later in the spec.
 

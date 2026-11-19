@@ -1,6 +1,6 @@
 {
   "name": "dsh-qqbot-akane",
-  "version": "0.5.5__0.1",
+  "version": "0.5.5__0.2",
   "icon": "./assets/icons/akane_qqbot.svg",
   "description": "akane 的 QQ 机器人：群聊两级唤醒词、persona 文件热加载、黑名单硬拦截、群历史带图片。fork 自 @tencent-connect/dsh-qqbot 0.5.5，身份与界面独立。",
   "type": "module",
