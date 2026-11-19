@@ -65,8 +65,9 @@ cd embed-service; node install.mjs
 ```bash
 # Linux / macOS
 cd embed-service
-setsid nohup node server.mjs > ~/.akane-embed.log 2>&1 < /dev/null &   # 起
-kill "$(pgrep -f 'embed-service/server.mjs')"                            # 停
+./start.sh          # 起（后台、pid 文件、轮询 /health 最多 30s）
+./stop.sh           # 停
+./start.sh -p 9000  # 换端口，stop 用同一个 -p
 ```
 
 ```powershell
@@ -74,6 +75,17 @@ kill "$(pgrep -f 'embed-service/server.mjs')"                            # 停
 cd embed-service
 powershell -ExecutionPolicy Bypass -File .\start.ps1 -Port 8765
 powershell -ExecutionPolicy Bypass -File .\stop.ps1  -Port 8765
+```
+
+`start.sh` / `stop.sh` 与 `start.ps1` / `stop.ps1` 是同语义的一对，不是两套习惯：
+`~/.akane-embed.pid`、`/health` 轮询、独立错误日志、**按命令行特征（`server.mjs --port <端口>`）
+认进程**。`stop.sh` 拿到候选后还会逐个重读 `ps -o args=` 再核对一次特征才动手，匹配不到就只打
+「不动任何进程」——**绝不做全局 node 匹配**，那会顺手端掉 `dsh web`。`/health` 有响应时
+`start.sh` 拒绝起第二个。手工等价写法（脚本就是这几步）：
+
+```bash
+setsid nohup node server.mjs > ~/.akane-embed.log 2>&1 < /dev/null &   # 起
+kill "$(cat ~/.akane-embed.pid)"                                        # 停
 ```
 
 `start.ps1` 把 pid 写到 `%USERPROFILE%\.akane-embed.pid`，日志（含轮转）写
@@ -88,10 +100,11 @@ pid 文件，文件没了才按命令行特征（`embed-service*server.mjs*--por
 - `AKANE_EMBED_THREADS` 调 WASM 线程数，默认 1（本机单线程已经够用：见下面「实测数字」）。
 - 日志只打批次条数、维度、耗时、RSS —— 正文一个字符都不写。
 
-**Windows 通路目前的诚实状态**：`install.mjs` 的下载三路线、重试、隧道与拒绝分支都在
-本机（Linux）实跑过，`install.sh` 对参数是原样透传；`start.ps1` / `stop.ps1` **没有
-Windows 机器可实跑**，`onnxruntime-web` 的 WASM 在 Windows 上的表现也没验过。这两条
-在装机遇到问题时是第一嫌疑，别当成已验证的通路。
+**两条通路的诚实状态**：`install.mjs` 的下载三路线、重试、隧道与拒绝分支，以及
+`start.sh` / `stop.sh`（真起、空跑不动进程、真停三条分支）都在本机（Linux）实跑过，
+`install.sh` 对参数是原样透传；`start.ps1` / `stop.ps1` **没有 Windows 机器可实跑**，
+`onnxruntime-web` 的 WASM 在 Windows 上的表现也没验过。Windows 装机遇到问题时这两条
+是第一嫌疑，别当成已验证的通路。
 
 ## 接口
 
