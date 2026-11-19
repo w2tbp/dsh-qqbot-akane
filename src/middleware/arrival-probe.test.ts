@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,7 +13,9 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'akane-probe-'));
   vi.clearAllMocks();
 });
-afterEach(() => {
+afterEach(async () => {
+  // 每条用例一个 mkdtemp，不删就是每次 pnpm test 在 /tmp 里多攒一撮空目录
+  await rm(root, { recursive: true, force: true });
   vi.useRealTimers();
 });
 
