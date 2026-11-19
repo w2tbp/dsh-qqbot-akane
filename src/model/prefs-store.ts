@@ -88,6 +88,18 @@ export class PrefsStore {
     return this.sessionIds.get(sessionKey);
   }
 
+  /**
+   * 全量 sessionKey → sessionId 快照。
+   *
+   * 存在的理由只有一个：记忆库回填需要「这份转录属于哪个 peer」，而这是本文件
+   * 里唯一记了归属的正本（转录 header 没有 peer 字段）。每键只存**当前**一个
+   * sessionId（下面 setSessionId 是覆盖写），所以被 fork 掉的旧转录反查不出归属，
+   * 回填侧会落成 unknown —— 这是已知缺口（B4），不是这里的 bug。
+   */
+  sessionIdEntries(): Array<[string, string]> {
+    return [...this.sessionIds.entries()];
+  }
+
   setSessionId(sessionKey: string, sessionId: string): void {
     this.sessionIds.set(sessionKey, sessionId);
     this.deleted.sessionIds.delete(sessionKey);

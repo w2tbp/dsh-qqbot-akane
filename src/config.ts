@@ -64,6 +64,28 @@ export interface SendFileConfig {
   maxFiles: number;
 }
 
+/**
+ * 记忆库（T2 语义索引 + 回填）。**默认关闭**：`enabled=false` 时不建 `index/` 目录、
+ * 不起后台作业、不注册任何工具 —— 关闭态零行为变化是 §7 P0 的验收项，不是愿望。
+ *
+ * 限额类参数一期不进设置页（§7），走 Schema 默认 + 注释标「临时」。
+ */
+export interface MemoryConfig {
+  /** 总开关 */
+  enabled: boolean;
+  /**
+   * 本机常驻 embedding 服务基址。只准回环地址：送进 `/embed` 的就是 chunk 正文，
+   * 非回环等于把聊天内容发出去（客户端直接拒绝，见 memory/embed-client.ts）。
+   */
+  embedBaseUrl: string;
+  /** 单次 HTTP 往返超时(ms) */
+  timeoutMs: number;
+  /** 向量维度：与模型绑定，与 meta.json 不符即整体重建（§4「不许新旧混存」） */
+  dims: number;
+  /** 后台同步间隔(ms)：首轮跑完即全量回填，之后按此增量 */
+  syncIntervalMs: number;
+}
+
 export interface ImQQBotConfig {
   /** QQ Bot AppID */
   appId: string;
@@ -135,6 +157,8 @@ export interface ImQQBotConfig {
   vision: VisionConfig;
   /** 附件发送（akane_send_file 工具与交付物投递共用） */
   sendFile: SendFileConfig;
+  /** 记忆库 T2 索引与回填（默认关，关闭态零行为变化） */
+  memory: MemoryConfig;
 }
 
 /** 访问控制子 Schema（独立导出：config 路由的服务端校验复用） */
@@ -225,4 +249,17 @@ export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
     sendPresentedFiles: true,
     maxFiles: 4,
   }).description('附件发送配置'),
+  memory: Schema.object({
+    enabled: Schema.boolean().default(false).description('记忆库总开关：关闭时不建 index/、不起后台作业、不注册工具（零行为变化）'),
+    embedBaseUrl: Schema.string().default('http://127.0.0.1:8765').description('本机常驻 embedding 服务基址（只接受回环地址，其他一律拒绝）'),
+    timeoutMs: Schema.number().default(8000).description('单次嵌入往返超时(ms)'),
+    dims: Schema.number().default(512).description('向量维度（与模型绑定，不符即整体重建）'),
+    syncIntervalMs: Schema.number().default(600000).description('后台同步间隔(ms)，首轮跑完即全量回填'),
+  }).default({
+    enabled: false,
+    embedBaseUrl: 'http://127.0.0.1:8765',
+    timeoutMs: 8000,
+    dims: 512,
+    syncIntervalMs: 600000,
+  }).description('记忆库 T2 索引与回填（默认关）'),
 });

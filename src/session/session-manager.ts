@@ -14,6 +14,7 @@
  * 挂载 preset（工具集、prompt sections 等），实现场景化配置。
  */
 import { legacyDerivedSessionId, mintSessionId } from './session-id.ts';
+import { parseSessionKey } from '../memory/peer.ts';
 import { buildPersona } from '../persona.ts';
 import { insertPersonaSection, type AssembledPrompt } from '../persona-section.ts';
 import { SessionId } from '@deepseek-ai/dsh-session';
@@ -634,6 +635,25 @@ export class SessionManager {
   findBySessionId(sessionId: string): SessionRecord | undefined {
     for (const record of this.sessions.values()) {
       if (record.sessionId === sessionId) return record;
+    }
+    return undefined;
+  }
+
+  /**
+   * 归属反查：sessionId → 这个会话属于谁。记忆库回填的唯一入口（§5 隐私边界）。
+   *
+   * 顺序是「在内存里的会话」→「prefs 记的当前 sessionId」。两处都查不到就返回
+   * undefined，调用方必须落 `unknown`（只进索引、永不可召回）——**绝不按 cwd 兜底**：
+   * 她那 4 份转录与另外 11 份别人的转录（含用户本人的开发对话）躺在同一个
+   * sessions 根目录下，放宽一次就等于把别人的对话捞进她的上下文。
+   */
+  peerOfSessionId(sessionId: string): { scope: ChatScope; peerId: string } | undefined {
+    const live = this.findBySessionId(sessionId);
+    if (live) return { scope: live.scope, peerId: live.peerId };
+    for (const [key, id] of this.modelResolver.sessionIdEntries()) {
+      if (id !== sessionId) continue;
+      const ref = parseSessionKey(key);
+      if (ref) return ref;
     }
     return undefined;
   }

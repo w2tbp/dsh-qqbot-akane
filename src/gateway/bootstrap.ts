@@ -26,6 +26,8 @@ import { startMediaCleanup } from '../media/media-cleaner.ts';
 import { startProbeCleanup } from '../middleware/arrival-probe.ts';
 import { ensureVisionInputModal, registerDescribeImageTool } from '../media/vision-tool.ts';
 import { registerSendFileTool, type MediaSenderLike } from '../media/send-file-tool.ts';
+import { startMemoryFeature } from '../memory/index.ts';
+import { resolveAgentCwd } from '../shared/dirs.ts';
 import { DeliverablesDeliverer } from '../transport/deliverables.ts';
 
 /**
@@ -190,6 +192,16 @@ export async function bootstrapGateway(
 
   // ── 附件发送工具注册（akane_send_file，发送器见上方 mediaSender） ──
   registerSendFileTool(ctx, mediaSender, manager, config, logger);
+
+  // ── 记忆库（T2 索引 + 后台回填 + akane_recall）：默认关闭，关闭态零行为变化 ──
+  //    开关只在这一处判：不建 index/、不起作业、不注册工具（§7 P0 验收第 3 条）。
+  startMemoryFeature({
+    ctx,
+    config,
+    manager,
+    logger,
+    agentCwd: resolveAgentCwd(config.cwd),
+  });
 
   // ── 生命周期 ──
   (ctx as unknown as { effect(fn: () => (() => Promise<void>) | void, name?: string): void })
