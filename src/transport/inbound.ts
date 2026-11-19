@@ -22,6 +22,7 @@ import {
 import { clearGroupHistory } from '../features/history-store.ts';
 import type { HistoryAttachment, HistoryEntry } from '../features/history-store.ts';
 import { getMediaLedger } from '../features/media-ledger.ts';
+import type { FragmentView } from '../middleware/fragment-merge.ts';
 import type { MiddlewareContext } from '@tencent-connect/qqbot-nodejs';
 
 // ── 类型定义 ──
@@ -60,6 +61,11 @@ export interface MiddlewareState {
   processedAttachments?: ProcessedAttachment[];
   downloadedFiles?: DownloadedFile[];
   downloadedQuoteFiles?: DownloadedFile[];
+  /**
+   * concurrencyGuard 合并进来的一批分片（含幸存者自己，按到达顺序）。
+   * 缺席 = 本轮没有被合并，走单条渲染的老形状。
+   */
+  akaneMergedFragments?: FragmentView[];
   [key: string]: unknown;
 }
 
@@ -75,6 +81,13 @@ export interface ProcessedAttachment {
   height?: number;
   size?: number;
 }
+
+// ── 框架协议标记 ──
+// 措辞与上游 body-assembler 对齐：她读过的其它 channel 用的是同一批括号标记，换词只会多一层噪音
+const QUOTE_END = '[Quoted message ends]';
+const CURRENT_MSG = '[Current message]';
+const MERGED_BEGIN = '[Merged messages begins]';
+const MERGED_END = '[Merged messages ends]';
 
 // ── 主处理函数 ──
 
@@ -169,10 +182,16 @@ export function assembleAgentBody(
 
   const userContent = buildUserContent(msg, state, logger);
 
-  if (isEmptyMessage(userContent, msg.attachments, isGroup, awakened)) return null;
+  // 合并批次的分片视图（含幸存者，按到达顺序）。单轮未合并时缺席。
+  const fragments = state.akaneMergedFragments;
+
+  if (isEmptyMessage(userContent, msg.attachments, isGroup, awakened, fragments)) return null;
 
   const quotePart = buildQuotePart(state.quote);
-  const userMessage = buildUserMessage(userContent, quotePart, msg.senderId, msg.senderName, isGroup, wasMentioned, awakened);
+  const userMessage = buildUserMessage(
+    userContent, quotePart, msg.senderId, msg.senderName,
+    isGroup, wasMentioned, awakened, fragments,
+  );
 
   const dynamicCtx = buildDynamicCtx(msg, state);
 
@@ -185,15 +204,20 @@ export function assembleAgentBody(
 /**
  * 判断消息是否为空：无文本/语音/附件，且群聊未被唤醒。
  * 群聊被 @ 或被唤醒词喊到都视为有效触发信号，即使内容为空也保留给 agent。
+ *
+ * 合并批次还要看早期分片：幸存者可能是个空壳（"@她 + 单发一张图" 之后又补一句
+ * 没字的），只看这一条会把整批判成空、整批丢掉。
  */
 function isEmptyMessage(
   userContent: string,
   attachments: RawAttachment[] | undefined,
   isGroup: boolean,
   awakened: boolean,
+  fragments: FragmentView[] | undefined,
 ): boolean {
   if (userContent) return false;
   if (attachments && attachments.length > 0) return false;
+  if (fragments?.some((f) => f.content !== '')) return false;
   if (isGroup && awakened) return false;
   return true;
 }
@@ -234,11 +258,16 @@ function buildQuotePart(quote?: ResolvedQuote): string {
 
   const quoteText = quote.text || quote.entry?.content || 'Original content unavailable';
 
-  return `[Quoted message begins]\n${quoteText}\n[Quoted message ends]\n[Current message]\n`;
+  return `[Quoted message begins]\n${quoteText}\n${QUOTE_END}\n${CURRENT_MSG}\n`;
 }
 
 /**
  * Layer 3: 带发送者标签的用户消息
+ *
+ * 合并批次（同目标在她忙时攒下的分片）必须保住归属：SDK 的 defaultMerge 把
+ * 多片拼成一份正文，而这里只渲染一个发送人，于是"张三三条 + 李四三条"会读成
+ * "一个人说了六句话"。规则与上游 body-assembler 同形 —— 同一人裸拼（少一层噪音），
+ * 不同人才分段，且触发标记只贴最后一片。
  */
 function buildUserMessage(
   userContent: string,
@@ -248,16 +277,37 @@ function buildUserMessage(
   isGroup: boolean,
   wasMentioned: boolean,
   awakened: boolean,
+  fragments?: FragmentView[],
 ): string {
-  if (!isGroup) {
-    return `${quotePart}${userContent}`;
-  }
-
   // 两种触发方式给不同标记：她需要知道是「被 @ 了」还是「有人喊名字」
   const mentionTag = wasMentioned ? ' (@you)' : awakened ? '（有人喊你）' : '';
   const displayName = senderName ?? shortSenderId(senderId);
-  const senderTag = `[${displayName} (${senderId})]`;
-  return `${quotePart}${senderTag} ${userContent}${mentionTag}`;
+  const currentLine = isGroup
+    ? `[${displayName} (${senderId})] ${userContent}${mentionTag}`
+    : userContent;
+
+  if (!fragments || fragments.length <= 1) return `${quotePart}${currentLine}`;
+
+  // 早期分片只出文字行：媒体与语音统一归到幸存者那一行（下载与 STT 发生在合并之后）
+  const earlier = fragments.slice(0, -1).filter((f) => f.content !== '');
+  if (earlier.length === 0) return `${quotePart}${currentLine}`;
+
+  const earlierLines = earlier.map((f) => {
+    const name = f.senderName ?? shortSenderId(f.senderId);
+    return isGroup ? `[${name} (${f.senderId})] ${f.content}` : f.content;
+  });
+
+  if (!isGroup || earlier.every((f) => f.senderId === senderId)) {
+    return `${quotePart}${[...earlierLines, currentLine].join('\n')}`;
+  }
+
+  return [
+    `${quotePart}${MERGED_BEGIN}`,
+    ...earlierLines,
+    MERGED_END,
+    CURRENT_MSG,
+    currentLine,
+  ].join('\n');
 }
 
 /**
