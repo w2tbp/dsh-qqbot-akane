@@ -41,7 +41,17 @@ const POINTS: ForkPoint[] = [
   {
     file: 'src/gateway/middleware-setup.ts',
     why: 'R1/R2 隐式唤醒：靠往 mentionGate 注 isImplicitMention 实现，词表全空时不注入',
-    must: [/import \{ createWaker \} from '\.\.\/wake\.ts'/, /const waker = createWaker\(\{/, /isImplicitMention: \(ctx: MiddlewareContext\) => waker\(ctx\.message\)/],
+    must: [/import \{[^}]*createWaker[^}]*\} from '\.\.\/wake\.ts'/, /const waker = createWaker\(\{/, /isImplicitMention: createImplicitMention\(waker\)/],
+  },
+  {
+    file: 'src/middleware/quiet-window.ts',
+    why: '放行整批时必须在幸存者 state 上留「点过名」标记：早期那片的 @marker 必须洗掉，幸存者又是不带 @ 的续句，SDK 三条显式判据全灭 → 整批一句都不回（11-19 现网哑在这）',
+    must: [/export const AKANE_WINDOW_ADDRESSED/, /\[AKANE_WINDOW_ADDRESSED\] = true/, /absorbed\.has\(e\.messageId/],
+  },
+  {
+    file: 'src/gateway/middleware-setup.ts',
+    why: '门控读那个标记（接缝另一头）—— 少一边就等于「开了窗口反而让她对连发沉默」',
+    must: [/\[AKANE_WINDOW_ADDRESSED\] === true/, /waker \|\| config\.quietWindowMs > 0/],
   },
   {
     file: 'src/gateway/middleware-setup.ts',
@@ -57,6 +67,57 @@ const POINTS: ForkPoint[] = [
     file: 'src/transport/inbound.ts',
     why: 'R2：隐式唤醒（非显式 @）也算被唤起，三处判断都得换成 awakened',
     must: [/const awakened = wasMentioned \|\| \(state\.mention\?\.implicit \?\? false\)/, /buildAgentBody\(base, state\.history, isGroup, awakened\)/],
+  },
+  {
+    file: 'src/gateway/middleware-setup.ts',
+    why: '空闲静默窗口开在门控之前：第 5 步会把没唤醒的后续分片 stop 掉，挂到第 9 步旁边等于没挂',
+    must: [
+      /import \{[^}]*akaneQuietWindow[^}]*\} from '\.\.\/middleware\/quiet-window\.ts'/,
+      /if \(config\.quietWindowMs > 0\) \{/,
+      /bot\.use\(akaneQuietWindow\(\{/,
+    ],
+    before: [/bot\.use\(akaneQuietWindow/, /bot\.use\(mentionGate/],
+  },
+  {
+    file: 'src/gateway/middleware-setup.ts',
+    why: '到达间隔插桩：窗口默认值的唯一数据来源，必须开在 accessPolicy 之后（黑名单的人不落盘）、门控之前（未唤醒的续句也要计量）',
+    must: [
+      /import \{ akaneArrivalProbe \} from '\.\.\/middleware\/arrival-probe\.ts'/,
+      /if \(config\.arrivalProbe\.enabled\) \{/,
+      /bot\.use\(akaneArrivalProbe\(\{ logger, woke: namesHer \}\)\)/,
+    ],
+    before: [/bot\.use\(akaneArrivalProbe/, /bot\.use\(akaneHistoryBuffer/],
+  },
+  {
+    file: 'src/gateway/middleware-setup.ts',
+    why: '开桶资格与插桩共用同一个 namesHer（不带 onHit 的那份判定）—— 拆成两份就会 drift，且不许吃第 5 步那个会打日志的 waker',
+    must: [/const namesHer = \(ctx: MiddlewareContext\): boolean =>/, /canOpen: namesHer/],
+    mustNot: [/canOpen: \(ctx: MiddlewareContext\) => waker/],
+  },
+  {
+    file: 'src/middleware/quiet-window.ts',
+    why: '空壳判定必须用洗过 @marker 的文字，否则单独一条 @ 走的是短窗口、长窗口形同不存在',
+    must: [/if \(cleanFragmentText\(msg\.content \?\? ''\)\ !== ''\) return true/],
+  },
+  {
+    file: 'src/gateway/middleware-setup.ts',
+    why: '分片合并语义：不吃 SDK 的 defaultMerge —— 它把被动回复锚在最老的 msg_id 上、拼掉跨人归属、丢掉纯图分片的附件',
+    must: [
+      /import \{ mergeFragments, onMergeBufferFull \} from '\.\.\/middleware\/fragment-merge\.ts'/,
+      /strategy: 'merge'/,
+      /onMerge: mergeFragments/,
+      /onDrop: onMergeBufferFull\(logger\)/,
+    ],
+    mustNot: [/strategy: 'queue'/],
+  },
+  {
+    file: 'src/transport/inbound.ts',
+    why: '合并批次的归属渲染 + 空壳判定：早期分片被丢就等于整批消失',
+    must: [
+      /akaneMergedFragments\?: FragmentView\[\]/,
+      /isEmptyMessage\(userContent, msg\.attachments, isGroup, awakened, fragments\)/,
+      /MERGED_BEGIN/,
+    ],
   },
   {
     file: 'src/client/config-panel.ts',
@@ -75,6 +136,8 @@ const CONFIG_FIELDS = [
   'wakeWords', 'wakeWordsWeak', 'wakeWordExcludes',
   'c2cDeny', 'groupDeny',
   'personaGroupFile', 'personaDirectFile', 'personaLessonsDir',
+  'quietWindowMs', 'quietWindowEmptyShellMs', 'quietWindowMaxWaitMs', 'quietWindowMaxFragments',
+  'arrivalProbe',
 ];
 
 /** 构建产物入库是刻意的（GitHub 安装开箱即用），这几条防「改了 src 忘了 build」 */
@@ -83,8 +146,17 @@ const BUILT: Array<[string, RegExp]> = [
   ['lib/persona.js', /buildPersona/],
   ['lib/persona-section.js', /insertPersonaSection/],
   ['lib/middleware/history-buffer.js', /akaneHistoryBuffer/],
+  ['lib/middleware/fragment-merge.js', /mergeFragments/],
+  ['lib/middleware/quiet-window.js', /akaneQuietWindow/],
+  ['lib/middleware/quiet-window.js', /AKANE_WINDOW_ADDRESSED/],
+  ['lib/middleware/arrival-probe.js', /akaneArrivalProbe/],
+  ['lib/features/arrival-stats.js', /summarizeArrivals/],
   ['lib/features/media-ledger.js', /getMediaLedger/],
   ['lib/gateway/middleware-setup.js', /akaneHistoryBuffer/],
+  ['lib/gateway/middleware-setup.js', /mergeFragments/],
+  ['lib/gateway/middleware-setup.js', /akaneQuietWindow/],
+  ['lib/gateway/middleware-setup.js', /akaneArrivalProbe/],
+  ['lib/gateway/bootstrap.js', /startProbeCleanup/],
   ['lib/session/session-manager.js', /insertPersonaSection/],
   ['lib/client.js', /wakeWords/],
 ];
