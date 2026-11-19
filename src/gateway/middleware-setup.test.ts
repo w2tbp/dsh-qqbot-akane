@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { accessPolicy } from '@tencent-connect/qqbot-nodejs';
 import type { MiddlewareContext } from '@tencent-connect/qqbot-nodejs';
-import { buildAccessPolicy } from './middleware-setup.ts';
+import { buildAccessPolicy, createImplicitMention } from './middleware-setup.ts';
+import { AKANE_WINDOW_ADDRESSED } from '../middleware/quiet-window.ts';
+import { createWaker } from '../wake.ts';
 import type { ImQQBotConfig } from '../config.ts';
 import type { Logger } from '../types.ts';
 
@@ -92,5 +94,33 @@ describe('R4 黑名单进代码', () => {
       access: { ...config().access, groupDeny: ['GROUP-1'] },
     }), logger);
     expect((await run(policy, groupMsg('SOMEONE'))).passed).toBe(true);
+  });
+});
+
+describe('门控认静默窗口的批次标记（与 quiet-window 的接缝）', () => {
+  const ctxWith = (state: Record<string, unknown>, content = '晚上不想做饭') =>
+    ({ message: { kind: 'group', content, senderId: 'S' }, state }) as unknown as MiddlewareContext;
+
+  it('词表全空（waker=null）时，窗口折叠过的整批照样算被点名', () => {
+    const probe = createImplicitMention(null);
+    expect(probe(ctxWith({ [AKANE_WINDOW_ADDRESSED]: true }))).toBe(true);
+  });
+
+  it('没有标记 + 词表全空 → false（上游 0.5.5 的关闭态不变）', () => {
+    const probe = createImplicitMention(null);
+    expect(probe(ctxWith({}))).toBe(false);
+  });
+
+  it('没有标记但唤醒词命中 → 仍走 waker', () => {
+    const waker = createWaker({ strong: ['akane'], weak: [], excludes: [], appId: '1903697171' })!;
+    expect(createImplicitMention(waker)(ctxWith({}, 'akane 你看看这个'))).toBe(true);
+    expect(createImplicitMention(waker)(ctxWith({}, '熊猫好胖'))).toBe(false);
+  });
+
+  it('标记命中时不调 waker（省掉重复的 debug 命中日志）', () => {
+    const calls: string[] = [];
+    const waker = (msg: { content?: string }): boolean => { calls.push(msg.content ?? ''); return false; };
+    createImplicitMention(waker)(ctxWith({ [AKANE_WINDOW_ADDRESSED]: true }, '被甲方折磨麻了'));
+    expect(calls).toEqual([]);
   });
 });

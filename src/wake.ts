@@ -73,7 +73,7 @@ interface MentionLike {
   is_you?: boolean;
 }
 
-interface WakeMessageLike {
+export interface WakeMessageLike {
   content?: string;
   rawEventType?: string;
   mentions?: MentionLike[] | null;
@@ -249,7 +249,7 @@ export function scanWake(prepared: string, compiled: CompiledWake): WakeHit | nu
 }
 
 /** 复刻 mentionGate 的显式 @ 判定，命中即让位给 wasMentioned，避免 reason 归类错乱 */
-function isExplicitMention(msg: WakeMessageLike, appId: string): boolean {
+export function isExplicitMention(msg: WakeMessageLike, appId: string): boolean {
   if (msg.rawEventType === 'GROUP_AT_MESSAGE_CREATE') return true;
   const mentions = msg.mentions;
   if (Array.isArray(mentions) && mentions.some((m) => m?.is_you === true)) return true;

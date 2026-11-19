@@ -24,10 +24,13 @@ import type { Logger } from '../types.ts';
 import { buildCommandList } from '../commands/index.ts';
 import { attachmentProcessor } from '../middleware/attachment.ts';
 import { akaneHistoryBuffer } from '../middleware/history-buffer.ts';
+import { akaneArrivalProbe } from '../middleware/arrival-probe.ts';
+import { akaneQuietWindow, AKANE_WINDOW_ADDRESSED } from '../middleware/quiet-window.ts';
+import { mergeFragments, onMergeBufferFull } from '../middleware/fragment-merge.ts';
 import { questionAnswer } from '../middleware/question-answer.ts';
 import { getHistoryStore, historyGroupKey } from '../features/history-store.ts';
 import { getMediaLedger } from '../features/media-ledger.ts';
-import { createWaker } from '../wake.ts';
+import { createWaker, isExplicitMention, type WakeMessageLike, type Waker } from '../wake.ts';
 
 /**
  * 访问控制策略（R4：黑名单进代码）
@@ -62,6 +65,25 @@ export function buildAccessPolicy(config: ImQQBotConfig, logger: Logger): Access
   };
 }
 
+/**
+ * 门控的「隐性点名」判定（注入 SDK mentionGate 的 isImplicitMention）
+ *
+ * 两个来源，缺一不可：
+ * - 唤醒词命中（R1/R2）。
+ * - 静默窗口折叠过的**整批**：幸存者往往是后面那条不带 @ 的续句，而早期那片的
+ *   @marker 在窗口里就必须洗掉（它的链到第 4.6 步就断了，等不到第 6 步），
+ *   于是 SDK 那三条显式 @ 判据全灭。不认这个标记就会出现「一段话说三句、
+ *   她一句都不回」—— 11-19 现网实测。
+ *
+ * 标记只在 state 上，不往正文里塞假 @marker（她的 prompt 不该出现 `<@!...>`）。
+ */
+export function createImplicitMention(waker: Waker | null): (ctx: MiddlewareContext) => boolean {
+  return (ctx: MiddlewareContext): boolean => {
+    if ((ctx.state as Record<string, unknown> | undefined)?.[AKANE_WINDOW_ADDRESSED] === true) return true;
+    return waker ? waker(ctx.message) : false;
+  };
+}
+
 export function setupMiddlewares(
   bot: QQBot,
   config: ImQQBotConfig,
@@ -76,6 +98,27 @@ export function setupMiddlewares(
 
   // 3. 访问控制（空名单 = 拒绝所有人，fail-closed）
   bot.use(accessPolicy(buildAccessPolicy(config, logger)));
+
+  // 3.5 到达间隔插桩（默认关闭）—— 挂在门控与历史之前，但要**在 accessPolicy 之后**：
+  //     黑名单里的人不该在她磁盘上留下任何记录。未唤醒的群聊闲聊要记，
+  //     因为「一个人连发几条之间隔多久」正是靠这些续句量出来的。
+  //     只观测：不改 ctx、不停链、写盘 fire-and-forget，关掉时整块不挂载（零目录）。
+  const opener = createWaker({
+    strong: config.wakeWords,
+    weak: config.wakeWordsWeak,
+    excludes: config.wakeWordExcludes,
+    appId: config.appId,
+  });
+  /** 这条消息自身是否点名了她（显式 @ 或唤醒词）—— 静默窗口与插桩共用同一个判定 */
+  const namesHer = (ctx: MiddlewareContext): boolean => {
+    const msg = ctx.message as unknown as WakeMessageLike & { kind?: string };
+    // 私聊每一条都是说给她听的，天然有资格；群里必须点名
+    if (msg.kind !== 'group') return true;
+    return isExplicitMention(msg, config.appId) || (opener?.(msg) ?? false);
+  };
+  if (config.arrivalProbe.enabled) {
+    bot.use(akaneArrivalProbe({ logger, woke: namesHer }));
+  }
 
   // 4. 群历史缓冲 + 记录时落盘 — 放在门控之前，确保所有消息（含未 @bot）都计入上下文
   //    自建而不用 SDK 的 historyBuffer：它的条目只有文本位，群里的图片进历史就只剩空行。
@@ -93,8 +136,30 @@ export function setupMiddlewares(
     },
   }));
 
+  // 4.6 空闲静默窗口 —— 必须开在门控之前（未唤醒的后续分片会被第 5 步掐掉，
+  //     挂在第 9 步旁边等于没挂）。quietWindowMs = 0 时整块不挂载，链序与改动前一致。
+  if (config.quietWindowMs > 0) {
+    // 开桶资格用上面那个不带 onHit 的判定（opener）：
+    // 这里只问"要不要等他的续句"，不该在日志里冒充一次唤醒命中（那归第 5 步那个 waker 判）
+    bot.use(akaneQuietWindow({
+      quietMs: config.quietWindowMs,
+      emptyShellMs: config.quietWindowEmptyShellMs,
+      maxWaitMs: config.quietWindowMaxWaitMs,
+      maxFragments: config.quietWindowMaxFragments,
+      canOpen: namesHer,
+      isPassthrough: (ctx: MiddlewareContext) => {
+        const text = (ctx.message.content ?? '').trim();
+        // 斜杠命令要求"立刻"；待答问题的答案要求"立刻"（第 8.5 步的存在理由）
+        if (text.startsWith('/')) return true;
+        const { scope, targetId } = ctx.replyTarget;
+        return text !== '' && (manager.questionChannel?.hasPending(scope, targetId) ?? false);
+      },
+      logger,
+    }));
+  }
+
   // 5. 群聊 @bot 门控
-  //    唤醒词表全空时连 isImplicitMention 都不注入 —— 关闭态零开销，行为与上游 0.5.5 一致
+  //    词表全空**且窗口也关着**时才连 isImplicitMention 都不注入 —— 关闭态零开销，行为与上游 0.5.5 一致
   const waker = createWaker({
     strong: config.wakeWords,
     weak: config.wakeWordsWeak,
@@ -108,7 +173,7 @@ export function setupMiddlewares(
   });
   bot.use(mentionGate({
     requireMentionInGroup: config.requireMention,
-    ...(waker ? { isImplicitMention: (ctx: MiddlewareContext) => waker(ctx.message) } : {}),
+    ...(waker || config.quietWindowMs > 0 ? { isImplicitMention: createImplicitMention(waker) } : {}),
   }));
 
   // 6. 内容清洗（去 @marker、表情标签、多余空白）
@@ -132,10 +197,17 @@ export function setupMiddlewares(
   bot.use(questionAnswer(manager));
 
   // 9. 并发串行 + 消息合并（同 peer 排队，避免 session 冲突）
+  //    onMerge 必须显式给：缺省吃 SDK 的 defaultMerge，它会
+  //    ① 把被动回复锚在最老的 msg_id 上（离过期最近）、② 拼接丢跨人归属、
+  //    ③ 丢掉「只有图没有字」那种分片的附件。三条各对应一个现网故障形状。
+  //    不传 urgentPredicate：/stop 是注册命令，在第 8 步就被匹配并 reply+stop，
+  //    走不到这里 —— 上游 OpenClaw 需要它是因为那边的 /stop 是框架级的。
   bot.use(concurrencyGuard({
     strategy: 'merge',
     maxQueue: config.maxQueue,
     maxProcessingMs: config.processingTimeoutMs,
+    onMerge: mergeFragments,
+    onDrop: onMergeBufferFull(logger),
   }));
 
   // 10. C2C 输入状态指示
