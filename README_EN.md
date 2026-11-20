@@ -39,7 +39,7 @@ This repo is a local fork of `@tencent-connect/dsh-qqbot@0.5.5`. Changes concent
 | vision / send-file tools | `qqbot_describe_image` / `qqbot_send_file` | `akane_describe_image` / `akane_send_file` |
 | memory recall tool | none | `akane_recall` (behind `memory.enabled`, off by default) |
 
-New capabilities: group wake words (three tables, editable right on the settings page), history carried on implicit wake-up, images in group history are visible to her (see "Group history images"), persona as hot-reloaded files, blacklist enforced in code, meme-image replies, a quiet window that folds one thought split across several QQ messages into a single turn (see "Fragment quiet window"), and an opt-in memory stack (see "Memory stack") that needs a local embedding service you start yourself.
+New capabilities: group wake words (three tables, editable right on the settings page), history carried on implicit wake-up, images in group history are visible to her (see "Group history images"), persona as hot-reloaded files, blacklist enforced in code, meme-image replies with a four-tier eagerness dial (see "Sticker eagerness", per-turn observation included), a quiet window that folds one thought split across several QQ messages into a single turn (see "Fragment quiet window"), and an opt-in memory stack (see "Memory stack") that needs a local embedding service you start yourself.
 
 ```bash
 pnpm install && pnpm build
@@ -132,6 +132,7 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot-akane/cordis.dev.yml
 | `personaGroupFile` | string | `''` | Group persona file (empty = not injected), see "Persona files" |
 | `personaDirectFile` | string | `''` | Direct-chat persona file |
 | `personaLessonsDir` | string | `''` | Lessons directory (`*.md` joined in filename order) |
+| `stickerLevel` | string | `normal` | Sticker eagerness, four tiers (`off`/`quiet`/`normal`/`active`); `normal` is the identity tier - see "Sticker eagerness" |
 | `groupPrompt` | string | - | Extra system prompt for group chats (legacy, coexists with persona files) |
 | `directPrompt` | string | - | Extra system prompt for direct chats |
 | `textChunkLimit` | number | `4500` | Max chars per message |
@@ -205,6 +206,38 @@ config:
 
 Composition order is `persona file → lessons → legacy groupPrompt/directPrompt`, and the section is spliced in after the host's `deployment:persona-prefix` rather than appended to the end of the prompt. `persona/README.md` records the writing discipline: behaviour rules and few-shot dialogue, never a list of forbidden words.
 
+### Sticker eagerness (stickerLevel)
+
+She rarely volunteers a sticker today (roughly 14 out of 186 production turns, ≈7.5%), and the cause is not a broken pipe - `present` works whenever it is called. The cause is that **she never thinks the gallery exists**: the frequency rule lives in the body of the `akane-sticker` SKILL.md, which only enters her context when she invokes the skill herself (7 times in total, ever). What is permanently in front of her is that one line in the group persona, so the dial rewrites that line:
+
+| Tier | What `buildPersona` does |
+|------|------|
+| `off` | Deletes the line containing `akane-sticker` (the old soft-off meaning: gallery files and skill untouched, she may still think of it) |
+| `quiet` | Replaces that line in place with low-frequency wording (attach one only when asked) |
+| `normal` | **Identity tier, the default** - not one character of the persona changes, so production behaviour is unchanged |
+| `active` | Replaces it with high-frequency wording and appends one procedural step: if a picture came to mind this turn, or she notices two text-only turns in a row, she reads `stickers/INDEX.md` before speaking on the next one |
+
+Three premises worth stating:
+
+- **The tier only rewrites the group persona.** The direct-chat persona has no such line, so all four tiers are identity there - by design, not an oversight.
+- **This is not a hard gate.** `quiet` does not guarantee no sticker and `active` does not guarantee one; what changes is the odds of her thinking of it before she speaks. Nothing in the outbound decision moved.
+- **The wording lives in `persona/sticker-levels.md`** (`## quiet` / `## active` sections, mtime hot-reload: save and it is effective, never hardcoded). The in-place replacement is anchored on the `akane-sticker` token: hand-edit that line and drop the token, and `quiet`/`active` silently stop doing anything. `pnpm test` pins "exactly one line contains the token", so a broken edit fails the suite instead of surfacing in production.
+
+What `active` appends is a **conditionally triggered** read, not a read every turn: one extra step measured ≈ +2.4s on the median reply, and that cost should not be charged to every turn.
+
+The matching observation (off by default; it exists to answer "did moving the dial change anything"):
+
+| Config | Type | Default | Description |
+|------|------|--------|------|
+| `stickerProbe.enabled` | boolean | `false` | One line per completed turn: arrival ms + group/direct + images attached + of those, how many came from the sticker gallery + the tier in effect. **Counts only** - no paths, no message text, no openids |
+| `stickerProbe.keepDays` | number | `30` | Days to keep observation files, 0 = never expire |
+
+```bash
+node scripts/sticker-turn-report.mjs   # volunteered-sticker rate per tier, group and direct as two tables
+```
+
+The measurement rule lives in `src/features/sticker-turn-stats.ts` (the numerator counts only files under the gallery - `present` also declares non-sticker images, counting them all inflates it; direct chat is the control group, the tier does not touch it, so if it moves what moved was not the tier; a tier with fewer than 30 turns gets numbers but no conclusion). In the off state nothing is mounted, no cleanup timer runs, and the directory is not created. **This data can only come from real production traffic**: if it has not accumulated, say "keep collecting" - never patch the gap with a guess.
+
 ### Arrival probe (arrivalProbe)
 
 | Config | Type | Default | Description |
@@ -238,7 +271,7 @@ SDK history entries have a text slot only, so an image posted in a group collaps
 - **Limits**: 20 downloads per group per day (counted per attempt, failures do not refund; cache hits do not consume), anything beyond is labelled `[图片]` in history. Downloads sit at the tail of the queue, fire-and-forget, so flooding pictures only fills a queue — it never blocks her replying.
 - **Presentation**: an `        └ Image: <local path>` line hangs under the history entry, at most 4 paths per turn, allocated newest-first; entries without a path degrade to `[图片]` / `[视频]` / `[文件: name (size)]`. Signed URLs never enter context at all. If TTL cleanup removed the file, rendering checks on the spot — a dead path is never handed over.
 - **Lifetime**: unchanged, still `media.ttlHours` (default 24h, by file mtime; cleanup runs at startup and hourly).
-- **Quota and frequency are different things**: this caps **inbound** writes; how often she attaches a meme on the **outbound** side is a soft constraint in the `akane-sticker` skill, with no hard gate this cycle.
+- **Quota and frequency are different things**: this caps **inbound** writes; how eagerly she attaches a sticker on the **outbound** side is what the four `stickerLevel` tiers dial (see "Sticker eagerness") - still no hard gate this cycle.
 
 ### Vision (vision)
 
@@ -301,7 +334,7 @@ src/
 ├── index.ts                    # Cordis plugin entry (async apply)
 ├── config.ts                   # Config schema
 ├── wake.ts                     # Wake-word core (masking + two-tier tables + vocative check)
-├── persona.ts                  # Persona file reader (mtime+size cache, lessons join)
+├── persona.ts                  # Persona file reader (mtime+size cache, lessons join, sticker tier rewrite)
 ├── persona-section.ts          # Persona section injection (splice after persona-prefix)
 ├── types.ts                    # Global types
 ├── setup/                      # Credential binding (QR)
@@ -341,6 +374,7 @@ src/
 │   ├── history-store.ts        # Group history ring buffer (with attachment metadata)
 │   ├── media-ledger.ts         # Media ledger (dedup / single-flight / daily quota)
 │   ├── arrival-stats.ts        # Arrival-gap measurement rule (adjacent pairs per bucket)
+│   ├── sticker-turn-stats.ts   # Per-turn sticker rate by tier (direct chat as the control group)
 │   └── answer-parser.ts        # Answer parsing
 ├── media/                      # Media
 │   ├── vision-tool.ts          # Image vision understanding
@@ -350,6 +384,7 @@ src/
 │   ├── question-answer.ts      # Q&A answer handling
 │   ├── history-buffer.ts       # Group history buffer + download at record time (replaces the SDK one)
 │   ├── arrival-probe.ts        # Arrival-interval probe (step 3.5)
+│   ├── sticker-probe.ts        # Per-turn sticker observation (counts only, at turn end)
 │   ├── quiet-window.ts         # Idle quiet window (step 4.6, before the gate)
 │   ├── fragment-merge.ts       # Fragment merge (attribution / attachments / msg_id anchor)
 │   └── attachment.ts           # Attachment handling

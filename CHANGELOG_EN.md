@@ -6,20 +6,37 @@ This file records significant dsh-qqbot-akane updates from a product perspective
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.5.5__0.4] - 2026-11-20
+
+In one line: **there is now a tier she can be dialled through for how often she volunteers a sticker, plus an observation that can tell whether the dialling did anything.**
+
+This release **also absorbs the previous unpushed commit** (settings page restructured into 6 feature tabs + three feature switches, which was still labelled `0.5.5__0.3.1`). Everything from that commit ships here; it will not be released separately.
 
 ### Added
 
 - **Settings page restructured into 6 feature tabs** (Basic / Wake / Window / Stickers / Persona / Memory): previously all configuration was laid out in one long form, which became harder to navigate as features grew. Now grouped by semantics, one screen per tab, with the tab bar wrapping to fit narrow screens. The save button stays at the bottom and works across tabs.
-- **Three feature switches added to the settings page**:
-  - **Stickers** (`stickersEnabled`): soft gate - when off, only strips the sticker-gallery hint line from persona; gallery files and skill remain untouched, and she may still invoke the skill proactively.
+- **Sticker eagerness, four tiers** (`stickerLevel`, selectable in the "Stickers" tab):
+  - `off` - never: strips the sticker-gallery hint line from the persona entirely (this is what the old soft switch did).
+  - `quiet` - reserved: that line is replaced with low-frequency wording (only attach one when someone asks for it).
+  - `normal` - normal: **the identity tier and the default**. Nothing in the persona changes ⇒ zero behaviour change in production.
+  - `active` - eager: high-frequency wording, plus a procedural step - "if this turn brought a picture to mind, or you notice you've shipped two turns of plain text in a row, read `stickers/INDEX.md` before you open your mouth on the next one".
+  - The wording itself lives in `persona/sticker-levels.md` as the single source of truth (mtime hot-reload: edit, save, effective immediately - never hardcoded), and **only the group persona is touched**; the direct-chat persona has no such line, so all four tiers are identity there.
+  - This is not a hard gate: `quiet` does not guarantee no sticker and `active` does not guarantee one. What changes is the odds of her thinking of it before she speaks.
+- **Per-turn sticker observation** (`stickerProbe`, off by default): while enabled, one line per completed turn lands in `~/.dsh-qqbot-akane/sticker-turns/` as `{ arrival ms, group/direct, images attached, of which from the sticker gallery, tier in effect }`. **Counts only - no paths, no message text, no openids**, so this file needs no scrubbing step. `node scripts/sticker-turn-report.mjs` renders "volunteered-sticker rate per tier" as two tables, group and direct (direct is the control group - the tier does not touch it, so if it moves, what moved was not the tier).
+- **Two feature switches added to the settings page**:
   - **Persona injection** (`personaEnabled`): master switch - when off, persona files, lessons, and legacy prompts are all excluded from the system prompt; she becomes the host's generic assistant.
   - **Memory** (`memory.enabled`): runtime switch - when off, no index/ directory is created, no background job runs, no tool is registered (zero behaviour change); when turned on, takes effect immediately without restart. Implemented via a module-level singleton `memorySwitch`, synced on every mount by `startMemoryFeature`, and checked at runtime by `execute` and `tick`.
 
+### Changed
+
+- **The stickers switch is folded into the four tiers**: the `stickersEnabled` boolean is removed and `off` carries the same meaning, so the UI has one control instead of two. That key came from the unpushed commit above and never appeared in production YAML; the config Schema is non-strict, so a leftover key is silently ignored rather than an error.
+
 ### Notes
 
-- Tests: **722 passed / 48 files** (+11 this round: persona 6, memory/index 1, memory/recall-tool 1, memory/backfill 1, fork-guard 2), `pnpm build` clean.
-- All three switches default to `true` in the Schema (memory defaults to `false`), so upgrades see zero behaviour change.
+- Tests: **760 passed / 50 files**, `pnpm build` clean, and `pnpm run typecheck:client` still shows exactly the 17 pre-existing upstream errors (15 in `bind-page.ts` + 2 in `client/index.ts`) - none added.
+- **No tier's effect is verified yet**: the default `normal` is the identity tier, so shipping this changes not one word of how she behaves; "how far does `active` actually push the rate" needs the observation running on real traffic first. Until then no tier may be called "proven to work". The only known number is the baseline: roughly 14 volunteered stickers across 186 production turns (≈7.5%).
+- Observation off by default ⇒ nothing is mounted, no cleanup timer starts, the directory is not even created.
+- The platform ceiling still caps the absolute number: group passive-reply quota `limit:4` and `msgid-cache` TTL 5 minutes. If the rate rises while the absolute count does not, check those two before touching the wording.
 
 ## [0.5.5__0.3.1] - 2026-11-20
 

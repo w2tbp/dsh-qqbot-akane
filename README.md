@@ -39,7 +39,7 @@
 | 视觉 / 发文件工具 | `qqbot_describe_image` / `qqbot_send_file` | `akane_describe_image` / `akane_send_file` |
 | 记忆召回工具 | 无 | `akane_recall`（`memory.enabled`，默认关） |
 
-新增能力：群聊唤醒词（§群聊唤醒词，三张表可在设置页直接编辑）、隐式唤醒也带群历史、群历史里的图片可被她看到（§群历史图片）、一句话被拆成几条发时的碎片静默窗口（§碎片静默窗口，四栏可在设置页直接改）、人格文件化热加载（§人格文件）、黑名单硬拦截（§访问控制）、表情包（梗图）回复能力，以及默认关闭的记忆库（§记忆库，需自备本机常驻 embedding 服务）。
+新增能力：群聊唤醒词（§群聊唤醒词，三张表可在设置页直接编辑）、隐式唤醒也带群历史、群历史里的图片可被她看到（§群历史图片）、一句话被拆成几条发时的碎片静默窗口（§碎片静默窗口，四栏可在设置页直接改）、人格文件化热加载（§人格文件）、黑名单硬拦截（§访问控制）、表情包（梗图）回复能力与四档积极度（§梗图积极度，含每轮配图观测），以及默认关闭的记忆库（§记忆库，需自备本机常驻 embedding 服务）。
 
 ```bash
 pnpm install && pnpm build
@@ -132,6 +132,7 @@ npx @deepseek-ai/dsh web --patch /path/to/dsh-qqbot-akane/cordis.dev.yml
 | `personaGroupFile` | string | `''` | 群聊人格文件（空=不注入），见「人格文件」 |
 | `personaDirectFile` | string | `''` | 私聊人格文件 |
 | `personaLessonsDir` | string | `''` | 课程记忆目录（`*.md` 按文件名排序拼接） |
+| `stickerLevel` | string | `normal` | 梗图积极度四档（`off`/`quiet`/`normal`/`active`），`normal` 是恒等档，见「梗图积极度」 |
 | `groupPrompt` | string | - | 群聊额外 system prompt（遗留通道，与 persona 文件并存） |
 | `directPrompt` | string | - | 私聊额外 system prompt |
 | `textChunkLimit` | number | `4500` | 单条消息最大字符数 |
@@ -205,6 +206,38 @@ config:
 
 拼合顺序为 `persona 文件 → 课程 → 遗留 groupPrompt/directPrompt`，注入位置在宿主的 `deployment:persona-prefix` 之后（不是整篇 prompt 末尾）。`persona/README.md` 写了文案纪律：行为约束 + few-shot 为主，绝不列禁词清单。
 
+### 梗图积极度（stickerLevel）
+
+她主动配梗图本来是很低的一件事（现网 186 个轮次里约 14 轮配了，≈7.5%），成因不是发不出去，而是**她压根没想起图库存在**：频率自律条款写在 `akane-sticker` 的 SKILL.md 正文里，而正文只有她主动调用 skill 才被读进上下文（历史上总共 7 次）。常驻在她眼前的只有群 persona 那一句。所以这个旋钮改的就是那一句话怎么说：
+
+| 档 | `buildPersona` 做什么 |
+|------|------|
+| `off` | 删掉含 `akane-sticker` 的那一行（原软关语义：图库文件与 skill 都不动，她仍可能自己想起来） |
+| `quiet` | 原地替换为低频措辞（只在点名要图时才配） |
+| `normal` | **恒等，默认值** —— persona 一个字不动，现网行为零变化 |
+| `active` | 原地替换为高频措辞，并追加一条程序性动作：这一轮想到了图、或连着两轮只交纯文字，下一轮先读一遍 `stickers/INDEX.md` 再开口 |
+
+三个前提得写在这儿：
+
+- **档位只改写群 persona**。私聊 persona 本来没那句话，四档对私聊全是恒等——这是设计，不是漏配。
+- **这不是硬闸门**。`quiet` 不保证不发、`active` 不保证必发，改的是「她开口前想到这件事」的概率；出站侧的冷却/配额判定一个字没动。
+- **文案正本在 `persona/sticker-levels.md`**（`## quiet` / `## active` 分节，mtime 热加载，改措辞存盘即生效，不写死进代码）。原地替换靠 `akane-sticker` 这个 token 当锚点：手改 persona 时把那行的 token 删掉，`quiet`/`active` 就静默失效——`pnpm test` 钉住「恰好一行含该 token」，改坏当场红，不用等现网发现。
+
+`active` 追加的是**条件触发**的一次读索引，不是每轮必读：实测每多一个 step ≈ 中位回复 +2.4s，那笔钱不该向所有轮次收。
+
+配套观测（默认关闭，用来回答「调了档到底变没变」）：
+
+| 配置 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `stickerProbe.enabled` | boolean | `false` | 每个轮次结束落一行：接收毫秒 + 群/私聊 + 本轮图片张数 + 其中落在梗图库的张数 + 当时生效档位。**只有计数**，路径/正文/openid 一个都不写 |
+| `stickerProbe.keepDays` | number | `30` | 观测文件保留天数，0=永不过期 |
+
+```bash
+node scripts/sticker-turn-report.mjs   # 按档位分段的主动配图占比，群聊与私聊分两张表
+```
+
+口径固定在 `src/features/sticker-turn-stats.ts`（分子只数落在梗图库的那部分——present 声明的图里混着非梗图产物，数全部会虚高；私聊是对照组，档位不改它，它跟着动就说明动的不是档位；某档不足 30 轮只出数不出结论）。关闭态不挂载、不起清理定时器、目录都不创建。**这份数据只能来自真实现网流量**：攒不到就照实说「继续攒」，不许拿估数去改档位文案或默认值。
+
 ### 到达间隔插桩（arrivalProbe）
 
 | 配置 | 类型 | 默认值 | 说明 |
@@ -238,7 +271,7 @@ SDK 的历史条目只有文本位，所以群里发的图片一旦进历史就�
 - **限量**：每群每天主动落盘 20 张（按尝试计，失败不退额度；命中缓存不占额度），超出只在历史里标 `[图片]`。下载挂在串行尾、fire-and-forget，刷图的人只能排队，不会阻塞她回话。
 - **呈现**：历史消息行下面挂 `        └ Image: <本地路径>`，每轮最多 4 个路径、从最新往回分配；没有路径的降级为 `[图片]`／`[视频]`／`[文件: 名字 (大小)]`。签名 URL 一律不进上下文。文件被 TTL 清掉后渲染时当场查出、绝不给死路径。
 - **保留时长**：仍是 `media.ttlHours`（默认 24 小时，按文件 mtime，清理启动时跑一次 + 每小时一次）。
-- **配额与频率是两件事**：这里限的是**入站**落盘量；她**出站**配图多久一张是 `akane-sticker` 技能里的软约束，本期没有硬闸门。
+- **配额与频率是两件事**：这里限的是**入站**落盘量；她**出站**多久主动配一张图是 `stickerLevel` 四档调的那件事（§梗图积极度），本期同样没有硬闸门。
 
 ### 视觉理解（vision）
 
@@ -301,7 +334,7 @@ src/
 ├── index.ts                    # Cordis 插件入口（async apply）
 ├── config.ts                   # 配置 Schema
 ├── wake.ts                     # 唤醒词内核（掩码 + 两级词表 + 呼格判定）
-├── persona.ts                  # 人格文件读取（mtime+size 缓存、lessons 拼接）
+├── persona.ts                  # 人格文件读取（mtime+size 缓存、lessons 拼接、梗图档位改写）
 ├── persona-section.ts          # 人格 section 注入（splice 到 persona-prefix 之后）
 ├── types.ts                    # 全局类型定义
 ├── setup/                      # 凭据绑定（扫码）
@@ -341,6 +374,7 @@ src/
 │   ├── history-store.ts        # 群历史环形缓冲（带附件元数据）
 │   ├── media-ledger.ts         # 媒体落盘账本（去重 / 单飞 / 每日配额）
 │   ├── arrival-stats.ts        # 到达间隔口径（同桶相邻两条，定窗口用）
+│   ├── sticker-turn-stats.ts   # 每轮配图占比口径（按档位分段，私聊作对照组）
 │   └── answer-parser.ts        # 答案解析
 ├── media/                      # 多媒体
 │   ├── vision-tool.ts          # 图片视觉理解
@@ -350,6 +384,7 @@ src/
 │   ├── question-answer.ts      # 问答答案处理
 │   ├── history-buffer.ts       # 群历史缓冲 + 记录时落盘（替代 SDK 版）
 │   ├── arrival-probe.ts        # 到达间隔插桩（第 3.5 步）
+│   ├── sticker-probe.ts        # 每轮配图观测（轮末只落计数，不参与任何判定）
 │   ├── quiet-window.ts         # 空闲静默窗口（第 4.6 步，门控之前）
 │   ├── fragment-merge.ts       # 分片合并（归属 / 附件 / msg_id 锚点）
 │   └── attachment.ts           # 附件处理
