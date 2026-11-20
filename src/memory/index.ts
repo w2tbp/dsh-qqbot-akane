@@ -3,7 +3,13 @@
  *
  * `memory.enabled=false`（默认）时本函数**第一件事都不做**：不建 `index/`、不起探测、
  * 不注册工具、不挂后台作业、不打日志。这是 §7 P0 验收第 3 条与 §9 测试 7 的正本，
- * 所有「关闭态零行为变化」都由这一行 `if (!enabled) return` 保证 —— 别在别处再判一次。
+ * 所有「关闭态零行为变化」都由这一行 `if (!enabled) return` 保证 —— 开启分支别在别处
+ * 再判一次。
+ *
+ * **但运行时判必须有一道在 `execute()` 与 `tick()` 里读共享状态**（`switch.ts` 的
+ * `memorySwitch`）：热重载只让新 fiber 不挂载，撤不掉旧 fiber 已注册的工具与后台作业，
+ * 所以关掉必须当场生效（不依赖重启）。挂载判与运行时判是两回事：前者守「开启分支
+ * 一处」，后者守「关闭态跨 fiber 立即停写停查」。
  *
  * 三条纪律落在各模块里，这里只负责拼：
  * - 常驻 embedding 服务的**启停归用户**（§5）：本模块不 spawn、不管道、不自愈、不 kill，
@@ -21,6 +27,7 @@ import { startMemorySync } from './backfill.ts';
 import { INDEX_ROOT } from './index-store.ts';
 import { peerKeyOfSessionRecord, UNKNOWN_PEER_KEY } from './peer.ts';
 import { registerRecallTool } from './recall-tool.ts';
+import { memorySwitch } from './switch.ts';
 
 /** 本模块需要的配置切片（整份 ImQQBotConfig 也满足这个形状） */
 export interface MemoryFeatureConfig {
@@ -47,6 +54,7 @@ export const EMBED_CAPABILITY_DOWN = 'embedding(不可达，已降级字面档)'
 
 export function startMemoryFeature(opts: MemoryFeatureOptions): void {
   const { ctx, config, manager, logger, agentCwd } = opts;
+  memorySwitch.on = config.memory.enabled;   // 每次挂载都写，跨 fiber 生效（运行时判读这个共享状态）
   if (!config.memory.enabled) return;
 
   const embed = embedConfigOf(config.memory);

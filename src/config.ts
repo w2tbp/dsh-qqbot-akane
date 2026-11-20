@@ -111,6 +111,17 @@ export interface ImQQBotConfig {
   personaDirectFile: string;
   /** 课程记忆目录（*.md 按文件名排序拼接） */
   personaLessonsDir: string;
+  /**
+   * 人格注入总开关。`false` 时 `buildPersona` 直接返空：三个 persona 文件、lessons
+   * 目录、groupPrompt/directPrompt 全都不进 system prompt —— 她变成宿主的通用助手。
+   * 默认 `true`，现网行为零变化。
+   */
+  personaEnabled: boolean;
+  /**
+   * 梗图功能开关（**软关**）。`false` 时只剥掉 persona 里那句「手里有梗图库（akane-sticker）」
+   * 的提示行；图库文件与 skill 不动，她仍可能主动调用 `akane-sticker`。默认 `true`。
+   */
+  stickersEnabled: boolean;
   /** 单条消息最大长度（QQ 限制约 5000 字符） */
   textChunkLimit: number;
   /** 是否启用流式输出（群聊始终不启用） */
@@ -171,6 +182,18 @@ export const AccessControlSchema: Schema<AccessControlConfig> = Schema.object({
   groupDeny: Schema.array(Schema.string()).default([]).description('群成员黑名单（发送者 QQ OpenID）：按人屏蔽，即使 @ 了本 bot 也不回'),
 });
 
+/**
+ * 记忆库子 Schema（独立导出：config 路由的 `memory` 局部合并校验复用）。
+ * 设置页只允许改 `enabled`，其余四键靠合并现值保留，不刷回默认。
+ */
+export const MemoryConfigSchema: Schema<MemoryConfig> = Schema.object({
+  enabled: Schema.boolean().default(false).description('记忆库总开关：关闭时不建 index/、不起后台作业、不注册工具（零行为变化）'),
+  embedBaseUrl: Schema.string().default('http://127.0.0.1:8765').description('本机常驻 embedding 服务基址（只接受回环地址，其他一律拒绝）'),
+  timeoutMs: Schema.number().default(8000).description('单次嵌入往返超时(ms)'),
+  dims: Schema.number().default(512).description('向量维度（与模型绑定，不符即整体重建）'),
+  syncIntervalMs: Schema.number().default(600000).description('后台同步间隔(ms)，首轮跑完即全量回填'),
+});
+
 export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
   appId: Schema.string().default('').description('QQ 机器人 AppID'),
   appSecret: Schema.string().default('').description('QQ 机器人 AppSecret'),
@@ -184,6 +207,8 @@ export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
   personaGroupFile: Schema.string().default('').description('群聊人格文件路径（空=不注入；相对路径按插件包根解析）'),
   personaDirectFile: Schema.string().default('').description('私聊人格文件路径'),
   personaLessonsDir: Schema.string().default('').description('课程记忆目录（*.md 按文件名排序拼接）'),
+  personaEnabled: Schema.boolean().default(true).description('人格注入总开关：关掉时 persona 文件、lessons、legacy prompt 全都不进 system prompt'),
+  stickersEnabled: Schema.boolean().default(true).description('梗图功能开关（软关）：关掉时只剥 persona 里那句梗图库提示；图库与 skill 不动'),
   textChunkLimit: Schema.number().default(4500).description('单条消息最大字符数'),
   streaming: Schema.boolean().default(true).description('是否启用流式输出（群聊始终不启用）'),
   sessionIdleTimeout: Schema.number().default(30 * 60 * 1000).description('会话闲置超时(ms)'),
@@ -249,13 +274,7 @@ export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
     sendPresentedFiles: true,
     maxFiles: 4,
   }).description('附件发送配置'),
-  memory: Schema.object({
-    enabled: Schema.boolean().default(false).description('记忆库总开关：关闭时不建 index/、不起后台作业、不注册工具（零行为变化）'),
-    embedBaseUrl: Schema.string().default('http://127.0.0.1:8765').description('本机常驻 embedding 服务基址（只接受回环地址，其他一律拒绝）'),
-    timeoutMs: Schema.number().default(8000).description('单次嵌入往返超时(ms)'),
-    dims: Schema.number().default(512).description('向量维度（与模型绑定，不符即整体重建）'),
-    syncIntervalMs: Schema.number().default(600000).description('后台同步间隔(ms)，首轮跑完即全量回填'),
-  }).default({
+  memory: MemoryConfigSchema.default({
     enabled: false,
     embedBaseUrl: 'http://127.0.0.1:8765',
     timeoutMs: 8000,

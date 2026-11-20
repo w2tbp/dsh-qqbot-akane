@@ -35,6 +35,7 @@ import {
   type RecallCandidate,
 } from './retrieval.ts';
 import { containsHostLeak, readEventWindow, scrubForReturn } from './transcript-source.ts';
+import { memorySwitch } from './switch.ts';
 
 export const RECALL_TOOL_NAME = 'akane_recall';
 
@@ -49,6 +50,8 @@ const NO_QUERY = '没查到（这次的问题里没有可匹配的关键词，�
 const NOTHING_INDEXED = '没查到（她的历史索引里还没有可检索的内容）。';
 const NOT_LOCATED = '没查到（暂时检索不了：当前会话没定位到，不能确定该看谁的历史）。';
 const NO_MATCH = '没查到（索引里没有语义或字面够得上的记录；不要把相近的说法当成事实复述）。';
+/** 运行时开关判：memorySwitch.on === false 时 execute 直接返这条，不进索引 */
+const MEMORY_OFF = '没查到（记忆库当前是关闭的，不要凭印象编造之前说过的话）。';
 
 const DESCRIPTION =
   'Recall what was said earlier in THIS conversation (with this same person or group), '
@@ -271,6 +274,10 @@ export function registerRecallTool(
       },
     },
     async execute(args: unknown, exec: { signal: AbortSignal; agent?: unknown }): Promise<RecallResult> {
+      // 运行时开关：memorySwitch.on === false 时直接返，不进索引（跨 fiber 生效，关掉当场停查）
+      if (!memorySwitch.on) {
+        return { text: MEMORY_OFF, hits: 0, degraded: false };
+      }
       const query = (args as { query?: unknown })?.query;
       if (typeof query !== 'string' || query.trim() === '') {
         return { text: NO_QUERY, hits: 0, degraded: false };

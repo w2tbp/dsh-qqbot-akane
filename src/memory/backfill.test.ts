@@ -259,3 +259,27 @@ async function loadCursors(): Promise<Record<string, number>> {
     return {};
   }
 }
+
+describe('memorySwitch 运行时开关', () => {
+  it('memorySwitch.on === false 时 startMemorySync 的 tick 不写索引', async () => {
+    const { memorySwitch } = await import('./switch.ts');
+    const { startMemorySync } = await import('./backfill.ts');
+    
+    // 关掉开关
+    memorySwitch.on = false;
+    
+    const stop = startMemorySync(deps(), 600000);
+    
+    // 等待一个宏任务边界，让 tick 跑完
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    
+    // 索引应该没写
+    expect(jsonl()).toHaveLength(0);
+    
+    // 停掉后台作业
+    stop();
+    
+    // 恢复开关状态
+    memorySwitch.on = true;
+  });
+});

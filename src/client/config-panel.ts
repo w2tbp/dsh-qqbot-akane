@@ -27,6 +27,15 @@ interface AccessControlWire {
   groupDeny: string[];
 }
 
+/** 记忆库配置（与 src/config.ts 的 MemoryConfig 对应的局部投影） */
+interface MemoryWire {
+  enabled?: boolean;
+  embedBaseUrl?: string;
+  timeoutMs?: number;
+  dims?: number;
+  syncIntervalMs?: number;
+}
+
 /** GET 回显的生效配置（appSecret 已剔除） */
 type ConfigWire = {
   requireMention?: boolean;
@@ -50,6 +59,9 @@ type ConfigWire = {
   personaGroupFile?: string;
   personaDirectFile?: string;
   personaLessonsDir?: string;
+  personaEnabled?: boolean;
+  stickersEnabled?: boolean;
+  memory?: MemoryWire;
 };
 
 /** 样式注入标记（幂等） */
@@ -164,6 +176,13 @@ function useConfigPanelStyles(): void {
 .imqb2-identity { display: flex; flex-direction: column; gap: 4px; padding: 0 0 14px; }
 .imqb2-identity-title { margin: 0; font-size: 15px; font-weight: 600; line-height: 1.5; color: var(--dsw-alias-label-primary); }
 .imqb2-identity-meta { margin: 0; font-size: 12px; line-height: 1.6; color: var(--dsw-alias-label-tertiary); }
+/* Tab 栏（6 个功能标签，flex wrap 适应窄屏） */
+.imqb2-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: var(--dsw-radius-md, 8px); background: var(--dsw-alias-interactive-bg-hover); margin-bottom: 12px; }
+.imqb2-tab { box-sizing: border-box; position: relative; z-index: 1; height: 32px; padding: 0 16px; border: 0; border-radius: var(--dsw-radius-sm, 6px); background: transparent; color: var(--dsw-alias-label-secondary); font: inherit; font-size: 13px; line-height: 24px; font-weight: 500; white-space: nowrap; cursor: pointer; transition: all 120ms ease; }
+.imqb2-tab:hover { color: var(--dsw-alias-label-primary); }
+.imqb2-tab[aria-selected='true'] { background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); box-shadow: var(--dsw-elevation-soft, 0 1px 3px rgba(0,0,0,.08)); }
+.imqb2-tab:focus-visible { outline: var(--dsw-focus-ring-width, 2px) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: -2px; }
+.imqb2-panel { padding-top: 4px; }
     `;
     document.head.appendChild(style);
     return () => { style.remove(); };
@@ -273,6 +292,17 @@ const MODE_OPTIONS: ReadonlyArray<{ value: AccessMode; label: string }> = [
   { value: 'allowlist', label: '白名单' },
   { value: 'disabled', label: '禁用' },
 ];
+
+/** 6 个功能 tab（设置页按语义归组，不再平铺在一个长表单里） */
+const FEATURE_TABS = [
+  { key: 'basic', label: '基础' },
+  { key: 'wake', label: '唤醒' },
+  { key: 'window', label: '窗口' },
+  { key: 'stickers', label: '梗图' },
+  { key: 'persona', label: '人格' },
+  { key: 'memory', label: '记忆库' },
+] as const;
+type FeatureTabKey = (typeof FEATURE_TABS)[number]['key'];
 
 /** 三张唤醒词表（提交时统一规范化） */
 const WAKE_LIST_KEYS = ['wakeWords', 'wakeWordsWeak', 'wakeWordExcludes'] as const;
@@ -417,6 +447,7 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<FeatureTabKey>('basic');
   // 绑定相位变化时重拉配置（扫码落库的白名单等新值）
   const bindPhase = props?.bindPhase;
 
@@ -518,82 +549,147 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
   const windowError = windowFormError(form, initial);
   const access: AccessControlWire = form.access ?? { c2cMode: 'open', c2cAllow: [], c2cDeny: [], groupMode: 'open', groupAllow: [], groupDeny: [] };
 
-  return createElement('form', { className: 'imqb2-form', onSubmit: submit },
-    createElement('div', { className: 'imqb2-group-title' }, '服务范围'),
+  // Tab bar
+  const tabBar = createElement('div', { className: 'imqb2-tabs', role: 'tablist' },
+    FEATURE_TABS.map((tab) => createElement('button', {
+      key: tab.key,
+      type: 'button',
+      role: 'tab',
+      'aria-selected': activeTab === tab.key,
+      className: 'imqb2-tab',
+      onClick: () => { setActiveTab(tab.key); },
+    }, tab.label)),
+  );
+
+  // Panel renderers
+  const renderBasicPanel = (): ReactNode[] => [
+    createElement('div', { className: 'imqb2-group-title', key: 'access-title' }, '服务范围'),
     createElement(SegmentedRow, {
+      key: 'c2c-mode',
       label: '私聊', value: access.c2cMode, options: MODE_OPTIONS,
-      onChange: (v) => { patch('access', { ...access, c2cMode: v }); },
+      onChange: (v: AccessMode) => { patch('access', { ...access, c2cMode: v }); },
     }),
     access.c2cMode === 'allowlist'
       ? createElement(AreaRow, {
+          key: 'c2c-allow',
           label: '私聊白名单', help: '请输入用户 openid，多个请换行输入', rows: 3,
           value: access.c2cAllow.join('\n'),
-          onChange: (v) => { patch('access', { ...access, c2cAllow: v.split('\n').map((s) => s.trim()) }); },
+          onChange: (v: string) => { patch('access', { ...access, c2cAllow: v.split('\n').map((s) => s.trim()) }); },
         })
       : null,
     createElement(SegmentedRow, {
+      key: 'group-mode',
       label: '群聊', value: access.groupMode, options: MODE_OPTIONS,
-      onChange: (v) => { patch('access', { ...access, groupMode: v }); },
+      onChange: (v: AccessMode) => { patch('access', { ...access, groupMode: v }); },
     }),
     access.groupMode === 'allowlist'
       ? createElement(AreaRow, {
+          key: 'group-allow',
           label: '群聊白名单', help: '请输入群 openid，多个请换行输入', rows: 3,
           value: access.groupAllow.join('\n'),
-          onChange: (v) => { patch('access', { ...access, groupAllow: v.split('\n').map((s) => s.trim()) }); },
+          onChange: (v: string) => { patch('access', { ...access, groupAllow: v.split('\n').map((s) => s.trim()) }); },
         })
       : null,
-    // 黑名单在模式判定之前生效，任何模式下都起作用，所以不跟随 mode 条件显示
     createElement(AreaRow, {
+      key: 'c2c-deny',
       label: '私聊黑名单', help: '命中的用户 openid 一律零输出：不回复、不解释，即使被 @', rows: 2,
       value: (access.c2cDeny ?? []).join('\n'),
-      onChange: (v) => { patch('access', { ...access, c2cDeny: v.split('\n').map((s) => s.trim()) }); },
+      onChange: (v: string) => { patch('access', { ...access, c2cDeny: v.split('\n').map((s) => s.trim()) }); },
     }),
     createElement(AreaRow, {
+      key: 'group-deny',
       label: '群成员黑名单', help: '按发送者 openid 屏蔽某个人，同群其他群友照常；同样零输出、不解释', rows: 2,
       value: (access.groupDeny ?? []).join('\n'),
-      onChange: (v) => { patch('access', { ...access, groupDeny: v.split('\n').map((s) => s.trim()) }); },
+      onChange: (v: string) => { patch('access', { ...access, groupDeny: v.split('\n').map((s) => s.trim()) }); },
     }),
 
-    createElement('div', { className: 'imqb2-group-title' }, '基础设置'),
+    createElement('div', { className: 'imqb2-group-title', key: 'basic-title' }, '基础设置'),
     createElement(SwitchRow, {
+      key: 'require-mention',
       label: '群聊仅回复 @机器人的消息', checked: form.requireMention ?? true,
       help: '开启后，机器人仅可回复 @机器人的群聊消息',
-      onChange: (v) => { patch('requireMention', v); },
+      onChange: (v: boolean) => { patch('requireMention', v); },
     }),
     createElement(SwitchRow, {
+      key: 'streaming',
       label: '流式输出', checked: form.streaming ?? true,
       help: '回复内容分段实时推送到聊天',
-      onChange: (v) => { patch('streaming', v); },
+      onChange: (v: boolean) => { patch('streaming', v); },
     }),
     createElement(SwitchRow, {
+      key: 'show-tool-results',
       label: '显示工具调用结果', checked: form.showToolResults ?? false,
       help: '在聊天中展示 agent 工具调用的结构化结果',
-      onChange: (v) => { patch('showToolResults', v); },
+      onChange: (v: boolean) => { patch('showToolResults', v); },
     }),
 
-    createElement('div', { className: 'imqb2-group-title' }, '群聊唤醒词'),
-    createElement('p', { className: 'imqb2-help' },
+    createElement('div', { className: 'imqb2-group-title', key: 'model-title' }, '模型'),
+    createElement(FieldRow, {
+      key: 'provider',
+      label: 'Provider', value: form.provider ?? '', placeholder: '留空继承宿主默认',
+      onChange: (v: string) => { patch('provider', v); },
+    }),
+    createElement(FieldRow, {
+      key: 'model',
+      label: 'Model', value: form.model ?? '', placeholder: '留空继承宿主默认',
+      onChange: (v: string) => { patch('model', v); },
+    }),
+    createElement(FieldRow, {
+      key: 'preset',
+      label: 'Preset', value: form.preset ?? '', placeholder: 'Agent preset id',
+      onChange: (v: string) => { patch('preset', v); },
+    }),
+
+    createElement('div', { className: 'imqb2-group-title', key: 'prompt-title' }, '个性化提示词'),
+    createElement(AreaRow, {
+      key: 'group-prompt',
+      label: '群聊额外 system prompt', value: form.groupPrompt ?? '',
+      onChange: (v: string) => { patch('groupPrompt', v); },
+    }),
+    createElement(AreaRow, {
+      key: 'direct-prompt',
+      label: '私聊额外 system prompt', value: form.directPrompt ?? '',
+      onChange: (v: string) => { patch('directPrompt', v); },
+    }),
+
+    form.cwd !== undefined
+      ? createElement('div', { className: 'imqb2-field', key: 'cwd' },
+          createElement('div', { className: 'imqb2-head' },
+            createElement('span', { className: 'imqb2-label' }, 'Agent 工作目录'),
+            createElement('span', { className: 'imqb2-hint' }, '只读'),
+          ),
+          createElement('p', { className: 'imqb2-readonly' }, form.cwd),
+        )
+      : null,
+  ];
+
+  const renderWakePanel = (): ReactNode[] => [
+    createElement('p', { className: 'imqb2-help', key: 'wake-help' },
       '不用 @ 也能喊住她。三张表共同判断「这句话是在喊她」还是「这句话只是提到了这个名字」：'
       + '只在上面的「群聊仅回复 @机器人的消息」打开时才有意义（关掉时群消息本来就全回）；'
       + '三张表都留空表示隐式唤醒完全关闭。保存写入 profile 里本插件的条目，之后以本页为准。'),
     createElement(AreaRow, {
+      key: 'wake-words',
       label: '强唤醒词', help: '一行一个。独立成词就触发，例：akane、茜茜', rows: 3,
       value: (form.wakeWords ?? []).join('\n'),
-      onChange: (v) => { patch('wakeWords', v.split('\n').map((s) => s.trim())); },
+      onChange: (v: string) => { patch('wakeWords', v.split('\n').map((s) => s.trim())); },
     }),
     createElement(AreaRow, {
+      key: 'wake-words-weak',
       label: '弱唤醒词', help: '一行一个。容易撞车的短词放这里，需要呼格信号才算喊人：句首、后接标点，或紧跟「你/能/帮/在吗」一类。例：猫 → 「猫，你怎么看」触发，「我家猫好胖」不触发', rows: 3,
       value: (form.wakeWordsWeak ?? []).join('\n'),
-      onChange: (v) => { patch('wakeWordsWeak', v.split('\n').map((s) => s.trim())); },
+      onChange: (v: string) => { patch('wakeWordsWeak', v.split('\n').map((s) => s.trim())); },
     }),
     createElement(AreaRow, {
+      key: 'wake-excludes',
       label: '唤醒排除片段', help: '一行一个。含名字的复合词在这一处不计：填「熊猫」，「我家熊猫好胖」里的名字就不算喊她。例：熊猫、猫粮、表情包', rows: 3,
       value: (form.wakeWordExcludes ?? []).join('\n'),
-      onChange: (v) => { patch('wakeWordExcludes', v.split('\n').map((s) => s.trim())); },
+      onChange: (v: string) => { patch('wakeWordExcludes', v.split('\n').map((s) => s.trim())); },
     }),
+  ];
 
-    createElement('div', { className: 'imqb2-group-title' }, '碎片静默窗口'),
-    createElement('p', { className: 'imqb2-help' },
+  const renderWindowPanel = (): ReactNode[] => [
+    createElement('p', { className: 'imqb2-help', key: 'window-help' },
       '一句话被拆成几条发时，她先把这几条攒成一批再开口。攒的这段时间是直接加在她每一次回话上的延迟：'
       + '嫌慢就把「静默窗口」调小，填 0 则整个攒片功能关闭；攒得太短又会把一句话说成两次回答。'
       + '按同群同人分桶，只有点到她名的那句才开桶，别人的闲聊不会被拽进这一轮。'
@@ -608,51 +704,66 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
     })),
     windowError === null
       ? null
-      : createElement('p', { className: 'imqb2-help imqb2-note--error' }, `⚠️ ${windowError}`),
+      : createElement('p', { className: 'imqb2-help imqb2-note--error', key: 'window-error' }, `⚠️ ${windowError}`),
+  ];
 
-    createElement('div', { className: 'imqb2-group-title' }, '模型'),
-    createElement(FieldRow, {
-      label: 'Provider', value: form.provider ?? '', placeholder: '留空继承宿主默认',
-      onChange: (v) => { patch('provider', v); },
+  const renderStickersPanel = (): ReactNode[] => [
+    createElement(SwitchRow, {
+      key: 'stickers-enabled',
+      label: '梗图功能', checked: form.stickersEnabled ?? true,
+      help: '关闭后只剥 persona 里那句梗图库提示；图库文件与 skill 不动，她仍可能主动调用',
+      onChange: (v: boolean) => { patch('stickersEnabled', v); },
     }),
-    createElement(FieldRow, {
-      label: 'Model', value: form.model ?? '', placeholder: '留空继承宿主默认',
-      onChange: (v) => { patch('model', v); },
-    }),
-    createElement(FieldRow, {
-      label: 'Preset', value: form.preset ?? '', placeholder: 'Agent preset id',
-      onChange: (v) => { patch('preset', v); },
-    }),
+  ];
 
-    createElement('div', { className: 'imqb2-group-title' }, '个性化提示词'),
-    createElement(AreaRow, {
-      label: '群聊额外 system prompt', value: form.groupPrompt ?? '',
-      onChange: (v) => { patch('groupPrompt', v); },
+  const renderPersonaPanel = (): ReactNode[] => [
+    createElement(SwitchRow, {
+      key: 'persona-enabled',
+      label: '人格注入', checked: form.personaEnabled ?? true,
+      help: '关闭后 persona 文件、lessons、legacy prompt 全都不进 system prompt，她变成宿主的通用助手',
+      onChange: (v: boolean) => { patch('personaEnabled', v); },
     }),
-    createElement(AreaRow, {
-      label: '私聊额外 system prompt', value: form.directPrompt ?? '',
-      onChange: (v) => { patch('directPrompt', v); },
-    }),
-
-    createElement('div', { className: 'imqb2-group-title' }, '人格文件（在本页之外编辑）'),
-    createElement(ReadonlyRow, { label: '群聊人格', value: form.personaGroupFile ?? '' }),
-    createElement(ReadonlyRow, { label: '私聊人格', value: form.personaDirectFile ?? '' }),
-    createElement(ReadonlyRow, { label: '课程目录', value: form.personaLessonsDir ?? '' }),
-    createElement('p', { className: 'imqb2-help' },
+    createElement('div', { className: 'imqb2-group-title', key: 'persona-files-title' }, '人格文件（在本页之外编辑）'),
+    createElement(ReadonlyRow, { key: 'persona-group', label: '群聊人格', value: form.personaGroupFile ?? '' }),
+    createElement(ReadonlyRow, { key: 'persona-direct', label: '私聊人格', value: form.personaDirectFile ?? '' }),
+    createElement(ReadonlyRow, { key: 'persona-lessons', label: '课程目录', value: form.personaLessonsDir ?? '' }),
+    createElement('p', { className: 'imqb2-help', key: 'persona-files-help' },
       '这些是「她是谁、怎么说话」的正本，不在这里改：用编辑器直接改插件目录下的 Markdown 文件即可。'
       + '相对路径按插件包根解析（也支持绝对路径与 ~/ 开头），按文件修改时间热加载——存盘后下一条消息生效，'
       + '不用重启、也不用点保存。上面的路径为空表示该份人格未启用。'),
+  ];
 
-    form.cwd !== undefined
-      ? createElement('div', { className: 'imqb2-field' },
-          createElement('div', { className: 'imqb2-head' },
-            createElement('span', { className: 'imqb2-label' }, 'Agent 工作目录'),
-            createElement('span', { className: 'imqb2-hint' }, '只读'),
-          ),
-          createElement('p', { className: 'imqb2-readonly' }, form.cwd),
-        )
-      : null,
+  const renderMemoryPanel = (): ReactNode[] => {
+    const memory = form.memory ?? {};
+    return [
+      createElement(SwitchRow, {
+        key: 'memory-enabled',
+        label: '记忆库', checked: memory.enabled ?? false,
+        help: '关闭时不建 index/、不起后台作业、不注册工具（零行为变化）；开启后当场生效，不用重启',
+        onChange: (v: boolean) => { patch('memory', { ...memory, enabled: v }); },
+      }),
+      createElement('div', { className: 'imqb2-group-title', key: 'memory-readonly-title' }, '高级参数（临时，一期不进设置页）'),
+      createElement(ReadonlyRow, { key: 'memory-base-url', label: 'embedding 服务基址', value: memory.embedBaseUrl ?? 'http://127.0.0.1:8765' }),
+      createElement(ReadonlyRow, { key: 'memory-timeout', label: '单次嵌入超时(ms)', value: String(memory.timeoutMs ?? 8000) }),
+      createElement(ReadonlyRow, { key: 'memory-dims', label: '向量维度', value: String(memory.dims ?? 512) }),
+      createElement(ReadonlyRow, { key: 'memory-sync-interval', label: '后台同步间隔(ms)', value: String(memory.syncIntervalMs ?? 600000) }),
+      createElement('p', { className: 'imqb2-help', key: 'memory-readonly-help' },
+        '这些参数走 Schema 默认 + YAML 手写，不在本页改。改完要重启常驻服务或 dsh web 才生效。'),
+    ];
+  };
 
+  const panelRenderers: Record<FeatureTabKey, () => ReactNode[]> = {
+    basic: renderBasicPanel,
+    wake: renderWakePanel,
+    window: renderWindowPanel,
+    stickers: renderStickersPanel,
+    persona: renderPersonaPanel,
+    memory: renderMemoryPanel,
+  };
+
+  return createElement('form', { className: 'imqb2-form', onSubmit: submit },
+    tabBar,
+    createElement('div', { className: 'imqb2-panel' }, panelRenderers[activeTab]()),
     createElement('div', { className: 'imqb2-footer' },
       result !== null
         ? createElement('p', { className: `imqb2-note${result.ok ? ' imqb2-note--ok' : ' imqb2-note--error'}` },

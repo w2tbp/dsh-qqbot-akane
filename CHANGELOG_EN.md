@@ -8,7 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-(Empty.)
+### Added
+
+- **Settings page restructured into 6 feature tabs** (Basic / Wake / Window / Stickers / Persona / Memory): previously all configuration was laid out in one long form, which became harder to navigate as features grew. Now grouped by semantics, one screen per tab, with the tab bar wrapping to fit narrow screens. The save button stays at the bottom and works across tabs.
+- **Three feature switches added to the settings page**:
+  - **Stickers** (`stickersEnabled`): soft gate - when off, only strips the sticker-gallery hint line from persona; gallery files and skill remain untouched, and she may still invoke the skill proactively.
+  - **Persona injection** (`personaEnabled`): master switch - when off, persona files, lessons, and legacy prompts are all excluded from the system prompt; she becomes the host's generic assistant.
+  - **Memory** (`memory.enabled`): runtime switch - when off, no index/ directory is created, no background job runs, no tool is registered (zero behaviour change); when turned on, takes effect immediately without restart. Implemented via a module-level singleton `memorySwitch`, synced on every mount by `startMemoryFeature`, and checked at runtime by `execute` and `tick`.
+
+### Notes
+
+- Tests: **722 passed / 48 files** (+11 this round: persona 6, memory/index 1, memory/recall-tool 1, memory/backfill 1, fork-guard 2), `pnpm build` clean.
+- All three switches default to `true` in the Schema (memory defaults to `false`), so upgrades see zero behaviour change.
 
 ## [0.5.5__0.3.1] - 2026-11-20
 

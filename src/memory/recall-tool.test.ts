@@ -322,6 +322,48 @@ describe('降级与失败语义（§9 测试 10）', () => {
   });
 });
 
+describe('memorySwitch 运行时开关', () => {
+  it('memorySwitch.on === false 时 execute 直接返固定措辞，不进索引', async () => {
+    const { memorySwitch } = await import('./switch.ts');
+    await seed([{ key: 's1:1-1', text: '猫粮两百多' }]);
+    
+    function ctxWithTools(): { ctx: Context; registered: Record<string, unknown>[] } {
+      const registered: Record<string, unknown>[] = [];
+      const ctx = {
+        get: (name: string) =>
+          name === 'tools' ? { register: (definition: unknown) => registered.push(definition as Record<string, unknown>) } : undefined,
+      } as unknown as Context;
+      return { ctx, registered };
+    }
+    
+    const embed = { baseUrl: 'http://127.0.0.1:8765', timeoutMs: 2000, dims: EMBED_DIMS };
+    const { ctx, registered } = ctxWithTools();
+    const manager = {
+      findByAgent: () => ({ scope: 'c2c', peerId: 'oA' }),
+    } as unknown as SessionManager;
+    
+    registerRecallTool(ctx, manager, { dir, embed, logger });
+    const execute = (registered[0]! as unknown as {
+      execute: (args: unknown, exec: { signal: AbortSignal; agent?: unknown }) => Promise<{ text: string; hits: number }>;
+    }).execute;
+    const signal = new AbortController().signal;
+    
+    // 先确认开关是开的
+    memorySwitch.on = true;
+    const outOn = await execute({ query: '猫粮' }, { signal, agent: 'A' });
+    expect(outOn.hits).toBe(1);
+    
+    // 关掉开关
+    memorySwitch.on = false;
+    const outOff = await execute({ query: '猫粮' }, { signal, agent: 'A' });
+    expect(outOff.hits).toBe(0);
+    expect(outOff.text).toContain('记忆库当前是关闭的');
+    
+    // 恢复开关状态
+    memorySwitch.on = true;
+  });
+});
+
 describe('工具注册形状', () => {
   function ctxWithTools(): { ctx: Context; registered: Record<string, unknown>[] } {
     const registered: Record<string, unknown>[] = [];

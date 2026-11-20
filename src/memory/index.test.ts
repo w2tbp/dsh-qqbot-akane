@@ -166,3 +166,30 @@ describe('开启态：接线', () => {
     expect(await probe()).toBe(false);
   });
 });
+
+describe('memorySwitch 运行时开关', () => {
+  it('startMemoryFeature 同步 memorySwitch.on 与 config.memory.enabled', async () => {
+    const { memorySwitch } = await import('./switch.ts');
+    const { ctx } = fakeCtx();
+    
+    // 开启时同步为 true
+    startMemoryFeature({
+      ctx,
+      config: { memory: memoryConfig({ enabled: true }), quietWindowMs: 12000 },
+      manager: fakeManager(),
+      logger,
+      agentCwd: CWD,
+    });
+    expect(memorySwitch.on).toBe(true);
+    
+    // 关闭时同步为 false
+    startMemoryFeature({
+      ctx,
+      config: { memory: memoryConfig({ enabled: false }), quietWindowMs: 12000 },
+      manager: fakeManager(),
+      logger,
+      agentCwd: CWD,
+    });
+    expect(memorySwitch.on).toBe(false);
+  });
+});

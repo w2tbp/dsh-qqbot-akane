@@ -19,6 +19,7 @@ import type { ChunkDraft } from './chunking.ts';
 import { chunkEvents } from './chunking.ts';
 import { embedTexts, type EmbedConfigLike } from './embed-client.ts';
 import { UNKNOWN_PEER_KEY } from './peer.ts';
+import { memorySwitch } from './switch.ts';
 import {
   appendRows,
   chunkKey,
@@ -239,6 +240,8 @@ export function startMemorySync(deps: BackfillDeps, intervalMs: number): () => v
   let running = false;
 
   const tick = async (): Promise<void> => {
+    // 运行时开关：memorySwitch.on === false 时直接返，不进索引（跨 fiber 生效，关掉当场停写）
+    if (!memorySwitch.on) return;
     if (stopped || running) return;
     running = true;
     try {

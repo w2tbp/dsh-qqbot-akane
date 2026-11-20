@@ -314,7 +314,7 @@ src/
 ├── client/                     # Browser half (dsh.client Web Bundle)
 │   ├── index.ts                # Sidebar tab registration + bind guidance
 │   ├── bind-page.ts            # In-app bind page (QR + status polling)
-│   └── config-panel.ts         # Settings panel (wake tables / four window fields / access)
+│   └── config-panel.ts         # Settings panel (6 feature tabs: Basic / Wake / Window / Stickers / Persona / Memory)
 ├── gateway/                    # Gateway assembly
 │   ├── bootstrap.ts            # Startup wiring (session/event listeners, etc.)
 │   └── middleware-setup.ts     # Middleware chain config

@@ -193,3 +193,54 @@ describe('插值安全（{{var}} 会炸掉整次 prompt 构建）', () => {
     expect(section.text).not.toContain('{{');
   });
 });
+
+describe('personaEnabled 总开关', () => {
+  it('personaEnabled === false 时 buildPersona 返回空串', () => {
+    const persona = join(root, 'p.md');
+    writeFileSync(persona, '人格内容', 'utf8');
+    const cfg = config({ personaGroupFile: persona, personaEnabled: false });
+    expect(buildPersona('group', cfg)).toBe('');
+  });
+
+  it('personaEnabled === true 时正常注入', () => {
+    const persona = join(root, 'p2.md');
+    writeFileSync(persona, '人格内容', 'utf8');
+    const cfg = config({ personaGroupFile: persona, personaEnabled: true });
+    expect(buildPersona('group', cfg)).toBe('人格内容');
+  });
+
+  it('personaEnabled 未定义时默认开启（向后兼容）', () => {
+    const persona = join(root, 'p3.md');
+    writeFileSync(persona, '人格内容', 'utf8');
+    const cfg = config({ personaGroupFile: persona });
+    expect(buildPersona('group', cfg)).toBe('人格内容');
+  });
+});
+
+describe('stickersEnabled 软关', () => {
+  it('stickersEnabled === false 时剥掉含 akane-sticker 的行', () => {
+    const persona = join(root, 'sticker-test.md');
+    writeFileSync(persona, '第一行\n你可以用 akane-sticker 发梗图\n第三行', 'utf8');
+    const cfg = config({ personaGroupFile: persona, stickersEnabled: false });
+    const result = buildPersona('group', cfg);
+    expect(result).not.toContain('akane-sticker');
+    expect(result).toContain('第一行');
+    expect(result).toContain('第三行');
+  });
+
+  it('stickersEnabled === true 时保留所有行', () => {
+    const persona = join(root, 'sticker-test2.md');
+    writeFileSync(persona, '第一行\n你可以用 akane-sticker 发梗图\n第三行', 'utf8');
+    const cfg = config({ personaGroupFile: persona, stickersEnabled: true });
+    const result = buildPersona('group', cfg);
+    expect(result).toContain('akane-sticker');
+  });
+
+  it('stickersEnabled 未定义时默认保留（向后兼容）', () => {
+    const persona = join(root, 'sticker-test3.md');
+    writeFileSync(persona, '你可以用 akane-sticker 发梗图', 'utf8');
+    const cfg = config({ personaGroupFile: persona });
+    const result = buildPersona('group', cfg);
+    expect(result).toContain('akane-sticker');
+  });
+});

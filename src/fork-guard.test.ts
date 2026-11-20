@@ -122,7 +122,7 @@ const POINTS: ForkPoint[] = [
   {
     file: 'src/client/config-panel.ts',
     why: '三张唤醒词表进设置页，词表以界面为正本',
-    must: [/WAKE_LIST_KEYS = \['wakeWords', 'wakeWordsWeak', 'wakeWordExcludes'\]/, /群聊唤醒词/],
+    must: [/WAKE_LIST_KEYS = \['wakeWords', 'wakeWordsWeak', 'wakeWordExcludes'\]/, /强唤醒词/],
   },
   {
     file: 'src/client/config-panel.ts',
@@ -137,6 +137,26 @@ const POINTS: ForkPoint[] = [
     ],
   },
   {
+    file: 'src/client/config-panel.ts',
+    why: '6 个功能 tab（基础/唤醒/窗口/梗图/人格/记忆库）：设置页按语义归组，不再平铺在一个长表单里',
+    must: [
+      /FEATURE_TABS = \[/,
+      /key: 'basic', label: '基础'/,
+      /key: 'wake', label: '唤醒'/,
+      /key: 'window', label: '窗口'/,
+      /key: 'stickers', label: '梗图'/,
+      /key: 'persona', label: '人格'/,
+      /key: 'memory', label: '记忆库'/,
+      /const \[activeTab, setActiveTab\] = useState<FeatureTabKey>\('basic'\)/,
+      /renderBasicPanel/,
+      /renderWakePanel/,
+      /renderWindowPanel/,
+      /renderStickersPanel/,
+      /renderPersonaPanel/,
+      /renderMemoryPanel/,
+    ],
+  },
+  {
     file: 'src/setup/bind-routes.ts',
     why: '窗口四栏的服务端一侧：白名单、逐键 Schema、跨键守卫三样缺一不可 —— 只有设置页能同时改这几栏，而「窗口开着 + 硬顶 0」这个组合会让中间件挂载即抛、整个插件下线',
     must: [
@@ -145,6 +165,17 @@ const POINTS: ForkPoint[] = [
       /quietWindowMaxFragments: integerSchema\(/,
       /function quietWindowComboError/,
       /quietWindowComboError\(\{ \.\.\.\(options\.currentConfig\?\.\(\) \?\? \{\}\), \.\.\.validated \}\)/,
+    ],
+  },
+  {
+    file: 'src/setup/bind-routes.ts',
+    why: '三个功能开关进设置页：personaEnabled / stickersEnabled / memory（局部合并校验）',
+    must: [
+      /'personaEnabled', 'stickersEnabled', 'memory'/,
+      /personaEnabled: \(v\) => booleanSchema\(v, 'personaEnabled'\)/,
+      /stickersEnabled: \(v\) => booleanSchema\(v, 'stickersEnabled'\)/,
+      /memory: \(v, current\) => memoryPartialSchema\(v, current\.memory\)/,
+      /function memoryPartialSchema/,
     ],
   },
   {
@@ -216,6 +247,7 @@ const CONFIG_FIELDS = [
   'wakeWords', 'wakeWordsWeak', 'wakeWordExcludes',
   'c2cDeny', 'groupDeny',
   'personaGroupFile', 'personaDirectFile', 'personaLessonsDir',
+  'personaEnabled', 'stickersEnabled',
   'quietWindowMs', 'quietWindowEmptyShellMs', 'quietWindowMaxWaitMs', 'quietWindowMaxFragments',
   'arrivalProbe',
   'memory', 'embedBaseUrl', 'syncIntervalMs',
@@ -249,10 +281,14 @@ const BUILT: Array<[string, RegExp]> = [
   ['lib/memory/retrieval.js', /matchesLiteral/],
   ['lib/memory/retrieval.js', /export const RRF_K/],
   ['lib/memory/recall-tool.js', /akane_recall/],
+  ['lib/memory/switch.js', /memorySwitch/],
   ['lib/session/session-manager.js', /insertPersonaSection/],
   ['lib/client.js', /wakeWords/],
   ['lib/client.js', /quietWindowMaxFragments/],
+  ['lib/client.js', /FEATURE_TABS/],
   ['lib/setup/bind-routes.js', /quietWindowComboError/],
+  ['lib/setup/bind-routes.js', /personaEnabled/],
+  ['lib/setup/bind-routes.js', /stickersEnabled/],
 ];
 
 /** 身份残留：漏一处就与原版同名顶掉，历史上真坏过（回滚文件后缀那次） */

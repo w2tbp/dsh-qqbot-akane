@@ -19,7 +19,7 @@ import {
   type SetupCredentials,
 } from './persist.ts';
 import { getProfileDir } from '../shared/index.ts';
-import { AccessControlSchema } from '../config.ts';
+import { AccessControlSchema, MemoryConfigSchema } from '../config.ts';
 import {
   BIND_CONFIG_PATH,
   BIND_MANUAL_PATH,
@@ -108,10 +108,16 @@ const EDITABLE_CONFIG_KEYS = new Set([
   'wakeWords', 'wakeWordsWeak', 'wakeWordExcludes',
   ...QUIET_WINDOW_KEYS,
   'access',
+  'personaEnabled', 'stickersEnabled', 'memory',
 ]);
 
-/** 白名单键的子 Schema（服务端校验：客户端校验仅为体验，安全边界在宿主） */
-const EDITABLE_CONFIG_SCHEMAS: Record<string, (value: unknown) => unknown> = {
+/**
+ * 白名单键的子 Schema（服务端校验：客户端校验仅为体验，安全边界在宿主）。
+ *
+ * 签名 `(value, current) => unknown`：`current` 是当前生效配置（`options.currentConfig()`），
+ * 只有 `memory` 用到它（局部合并：UI 只改 `enabled`，其余四键按现值补，不刷回默认）。
+ */
+const EDITABLE_CONFIG_SCHEMAS: Record<string, (value: unknown, current: Record<string, unknown>) => unknown> = {
   requireMention: (v) => booleanSchema(v, 'requireMention'),
   streaming: (v) => booleanSchema(v, 'streaming'),
   showToolResults: (v) => booleanSchema(v, 'showToolResults'),
@@ -129,7 +135,23 @@ const EDITABLE_CONFIG_SCHEMAS: Record<string, (value: unknown) => unknown> = {
   quietWindowMaxWaitMs: integerSchema('等待硬顶', 0, MAX_QUIET_WINDOW_MS),
   quietWindowMaxFragments: integerSchema('每批最多攒几条', 1, MAX_QUIET_WINDOW_FRAGMENTS),
   access: (v) => AccessControlSchema(v as never),
+  personaEnabled: (v) => booleanSchema(v, 'personaEnabled'),
+  stickersEnabled: (v) => booleanSchema(v, 'stickersEnabled'),
+  memory: (v, current) => memoryPartialSchema(v, current.memory),
 };
+
+/**
+ * 记忆库局部合并校验：UI 只提交 `{enabled: v}`（或带其余四键的完整块），
+ * 按现值补其余四键，别把 YAML 里手写的 `embedBaseUrl` 等刷回默认。
+ */
+function memoryPartialSchema(value: unknown, current: unknown): unknown {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('记忆库配置必须是对象');
+  }
+  const base = (typeof current === 'object' && current !== null ? current : {}) as Record<string, unknown>;
+  const merged = { ...base, ...(value as Record<string, unknown>) };
+  return MemoryConfigSchema(merged as never);
+}
 
 /**
  * 整数栏校验（min/max 含端点）。
@@ -486,10 +508,11 @@ async function handleConfig(req: IncomingMessage, res: ServerResponse, options: 
   // 逐键 Schema 校验（非法值拒绝，返回首个错误）
   let validated: Record<string, unknown> = {};
   try {
+    const current = options.currentConfig?.() ?? {};
     validated = Object.fromEntries(Object.entries(submitted).map(([key, value]) => {
       const check = EDITABLE_CONFIG_SCHEMAS[key];
       if (check === undefined) throw new TypeError(`不支持的字段: ${key}`);
-      return [key, check(value)];
+      return [key, check(value, current)];
     }));
   } catch (err) {
     sendJson(res, 400, { ok: false, error: err instanceof TypeError ? err.message : String(err) });

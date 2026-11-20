@@ -8,7 +8,18 @@
 
 ## [Unreleased]
 
-（暂无）
+### 新增
+
+- **设置页重构为 6 个功能 tab**（基础 / 唤醒 / 窗口 / 梗图 / 人格 / 记忆库）：此前所有配置平铺在一个长表单里，功能越多越难找。现在按语义归组，每个 tab 一屏，tab 栏可换行适应窄屏。保存按钮始终在底部，跨 tab 生效。
+- **三个功能开关进设置页**：
+  - **梗图功能**（`stickersEnabled`）：软关——关闭后只剥 persona 里那句梗图库提示，图库文件与 skill 不动，她仍可能主动调用。
+  - **人格注入**（`personaEnabled`）：总开关——关闭后 persona 文件、lessons、legacy prompt 全都不进 system prompt，她变成宿主的通用助手。
+  - **记忆库**（`memory.enabled`）：运行时开关——关闭时不建 index/、不起后台作业、不注册工具（零行为变化）；开启后当场生效，不用重启。实现靠模块级单例 `memorySwitch`，`startMemoryFeature` 每次挂载时同步状态，`execute` 和 `tick` 在运行时判它。
+
+### 说明
+
+- 测试 **722 passed / 48 files**（本轮 +11：persona 6 条、memory/index 1 条、memory/recall-tool 1 条、memory/backfill 1 条、fork-guard 2 条），`pnpm build` 干净。
+- 三个开关的 Schema 默认值都是 `true`（记忆库是 `false`），升级时零行为变化。
 
 ## [0.5.5__0.3.1] - 2026-11-20
 

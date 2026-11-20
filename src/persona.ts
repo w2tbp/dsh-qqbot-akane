@@ -85,15 +85,26 @@ export function readLessons(dirRaw: string | undefined): string {
 
 /** 组装当前会话的 persona 文本；全未配置时返回空串 = 行为与 0.5.5 一致 */
 export function buildPersona(scope: 'group' | 'c2c', config: ImQQBotConfig): string {
+  // 人格总开关：=== false 时三个 persona 文件、lessons、legacy prompt 全都不进 system prompt
+  // —— 她变成宿主的通用助手。用 === false 而非 !，避免缺省键意外关闭人格。
+  if (config.personaEnabled === false) return '';
+
   const primary = readCached(
     resolvePersonaPath(scope === 'group' ? config.personaGroupFile : config.personaDirectFile),
   );
   const lessons = readLessons(config.personaLessonsDir);
   const legacy = scope === 'group' ? config.groupPrompt : config.directPrompt;
-  return [primary, lessons, legacy]
+  const text = [primary, lessons, legacy]
     .map((part) => (part ?? '').trim())
     .filter((part) => part.length > 0)
     .join('\n\n');
+
+  // 梗图软关：stickersEnabled === false 时按行剥掉含 `akane-sticker` 的行（persona 文件
+  // 里那句「手里有梗图库」的提示）。不改 persona 文件本身（红线：措辞一改即改现网说话方式）。
+  if (config.stickersEnabled === false && text.includes('akane-sticker')) {
+    return text.split('\n').filter((line) => !line.includes('akane-sticker')).join('\n').trim();
+  }
+  return text;
 }
 
 /** 供测试与排障：清空 mtime 缓存 */

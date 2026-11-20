@@ -314,7 +314,7 @@ src/
 ├── client/                     # 浏览器半边（dsh.client Web Bundle）
 │   ├── index.ts                # 侧栏 Tab 注册 + 待绑定自动引导
 │   ├── bind-page.ts            # 端内绑定页（二维码 + 状态轮询）
-│   └── config-panel.ts         # 设置页面板（唤醒词三表 / 窗口四栏 / 访问控制）
+│   └── config-panel.ts         # 设置页面板（6 个功能 tab：基础 / 唤醒 / 窗口 / 梗图 / 人格 / 记忆库）
 ├── gateway/                    # 网关装配
 │   ├── bootstrap.ts            # 启动装配（监听 session/event 等）
 │   └── middleware-setup.ts     # 中间件链配置
