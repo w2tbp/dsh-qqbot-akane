@@ -19,7 +19,7 @@ import {
   type SetupCredentials,
 } from './persist.ts';
 import { getProfileDir } from '../shared/index.ts';
-import { AccessControlSchema, MemoryConfigSchema } from '../config.ts';
+import { AccessControlSchema, MemoryConfigSchema, STICKER_LEVELS } from '../config.ts';
 import {
   BIND_CONFIG_PATH,
   BIND_MANUAL_PATH,
@@ -108,7 +108,7 @@ const EDITABLE_CONFIG_KEYS = new Set([
   'wakeWords', 'wakeWordsWeak', 'wakeWordExcludes',
   ...QUIET_WINDOW_KEYS,
   'access',
-  'personaEnabled', 'stickersEnabled', 'memory',
+  'personaEnabled', 'stickerLevel', 'memory',
 ]);
 
 /**
@@ -136,7 +136,7 @@ const EDITABLE_CONFIG_SCHEMAS: Record<string, (value: unknown, current: Record<s
   quietWindowMaxFragments: integerSchema('每批最多攒几条', 1, MAX_QUIET_WINDOW_FRAGMENTS),
   access: (v) => AccessControlSchema(v as never),
   personaEnabled: (v) => booleanSchema(v, 'personaEnabled'),
-  stickersEnabled: (v) => booleanSchema(v, 'stickersEnabled'),
+  stickerLevel: enumSchema('梗图积极度', STICKER_LEVELS),
   memory: (v, current) => memoryPartialSchema(v, current.memory),
 };
 
@@ -197,6 +197,20 @@ function stringSchema(name: string): (value: unknown) => unknown {
   return (value) => {
     if (typeof value !== 'string') throw new TypeError(`${name} 必须是字符串`);
     if (value.length > 20000) throw new TypeError(`${name} 过长`);
+    return value;
+  };
+}
+
+/**
+ * 枚举栏校验：只收白名单里的字符串，落盘一律是字符串形态。
+ *
+ * 报错文案带合法值清单 —— 这一栏的值不记在人脑子里，界面上是选择条，手改 YAML 时才用得上。
+ */
+function enumSchema(name: string, allowed: readonly string[]): (value: unknown) => unknown {
+  return (value) => {
+    if (typeof value !== 'string' || !allowed.includes(value)) {
+      throw new TypeError(`${name} 只能是 ${allowed.join(' / ')} 之一`);
+    }
     return value;
   };
 }

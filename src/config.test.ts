@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ConfigSchema } from './config.ts';
+import { ConfigSchema, STICKER_LEVELS } from './config.ts';
 import { createWaker } from './wake.ts';
 
 describe('ConfigSchema 默认值（内层外层默认必须对齐：#94-1 不变量）', () => {
@@ -86,5 +86,36 @@ describe('ConfigSchema persona 路径（R3）', () => {
   it('遗留 groupPrompt 仍然可读（后向兼容）', () => {
     const cfg = ConfigSchema({ groupPrompt: '老配置' });
     expect(cfg.groupPrompt).toBe('老配置');
+  });
+});
+
+describe('ConfigSchema 梗图积极度与观测', () => {
+  it('缺省 stickerLevel = normal（= 现网行为零变化的那一档）', () => {
+    expect(ConfigSchema({}).stickerLevel).toBe('normal');
+  });
+
+  it('四档都收，档位之外的值被拒（含早期布尔形态）', () => {
+    for (const level of ['off', 'quiet', 'normal', 'active']) {
+      expect(ConfigSchema({ stickerLevel: level }).stickerLevel).toBe(level);
+    }
+    expect(() => ConfigSchema({ stickerLevel: 'max' })).toThrow();
+    expect(() => ConfigSchema({ stickerLevel: true })).toThrow();
+    expect(() => ConfigSchema({ stickerLevel: 2 })).toThrow();
+  });
+
+  it('合法档位正本就是 STICKER_LEVELS：Schema 与设置页校验共用这一份', () => {
+    expect(STICKER_LEVELS).toEqual(['off', 'quiet', 'normal', 'active']);
+    for (const level of STICKER_LEVELS) {
+      expect(ConfigSchema({ stickerLevel: level }).stickerLevel).toBe(level);
+    }
+  });
+
+  it('stickerProbe 默认关闭且留 30 天：关闭态不建目录、不起定时器', () => {
+    const cfg = ConfigSchema({});
+    expect(cfg.stickerProbe).toEqual({ enabled: false, keepDays: 30 });
+  });
+
+  it('stickerProbe 半写（YAML 只写 enabled）时 keepDays 仍取默认，不落成 undefined', () => {
+    expect(ConfigSchema({ stickerProbe: { enabled: true } }).stickerProbe).toEqual({ enabled: true, keepDays: 30 });
   });
 });

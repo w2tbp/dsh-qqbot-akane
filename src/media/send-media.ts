@@ -27,7 +27,8 @@ export interface MediaSenderLike {
   sendFile(target: ReplyTarget, source: { localPath?: string }, opts?: { fileName?: string }): Promise<MediaSendResult>;
 }
 
-const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']);
+/** 图片扩展名表（出站判定用；`sticker-probe` 数「这一轮几张图」共用同一份，别各写一张） */
+export const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']);
 const VIDEO_EXTS = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm']);
 const VOICE_EXTS = new Set(['.mp3', '.wav', '.ogg', '.aac', '.silk', '.amr']);
 

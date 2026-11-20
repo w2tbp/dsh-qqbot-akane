@@ -169,13 +169,32 @@ const POINTS: ForkPoint[] = [
   },
   {
     file: 'src/setup/bind-routes.ts',
-    why: '三个功能开关进设置页：personaEnabled / stickersEnabled / memory（局部合并校验）',
+    why: '设置页可编辑项的服务端一侧：persona 总开关、梗图积极度四档、记忆库局部合并三样缺一不可 —— 枚举栏必须有白名单校验，否则界面能填出 persona.ts 不认的档位',
     must: [
-      /'personaEnabled', 'stickersEnabled', 'memory'/,
+      /'personaEnabled', 'stickerLevel', 'memory'/,
       /personaEnabled: \(v\) => booleanSchema\(v, 'personaEnabled'\)/,
-      /stickersEnabled: \(v\) => booleanSchema\(v, 'stickersEnabled'\)/,
+      /stickerLevel: enumSchema\('梗图积极度', STICKER_LEVELS\)/,
+      /function enumSchema\(name: string, allowed: readonly string\[\]\)/,
       /memory: \(v, current\) => memoryPartialSchema\(v, current\.memory\)/,
       /function memoryPartialSchema/,
+    ],
+  },
+  {
+    file: 'src/persona.ts',
+    why: '梗图积极度的唯一生效通路：档位只在 buildPersona 末尾改写锚点行一次。丢掉这一调用 = 设置页照样能存、四档全变哑巴，而 persona 单测一个字都不会红（锚点 token 同时被 persona.test 钉在真实 md 上）',
+    must: [
+      /export const STICKER_ANCHOR = 'akane-sticker'/,
+      /export function applyStickerLevel\(/,
+      /if \(level === 'normal'/,
+      /return applyStickerLevel\(text, config\.stickerLevel \?\? 'normal', readStickerLevels\(\)\)/,
+    ],
+  },
+  {
+    file: 'src/transport/outbound.ts',
+    why: '每轮配图观测的唯一落点：轮末 present 声明数在这里才同时看得见（scope + 文件 + 档位）。丢了它，sticker-probe 的单测照绿而盘上一个字节不落',
+    must: [
+      /this\.stickerProbe = createStickerProbe\(config, logger\)/,
+      /this\.stickerProbe\?\.writeTurn\(record\.replyTarget\.scope, files\)/,
     ],
   },
   {
@@ -247,7 +266,7 @@ const CONFIG_FIELDS = [
   'wakeWords', 'wakeWordsWeak', 'wakeWordExcludes',
   'c2cDeny', 'groupDeny',
   'personaGroupFile', 'personaDirectFile', 'personaLessonsDir',
-  'personaEnabled', 'stickersEnabled',
+  'personaEnabled', 'stickerLevel', 'stickerProbe',
   'quietWindowMs', 'quietWindowEmptyShellMs', 'quietWindowMaxWaitMs', 'quietWindowMaxFragments',
   'arrivalProbe',
   'memory', 'embedBaseUrl', 'syncIntervalMs',
@@ -263,7 +282,11 @@ const BUILT: Array<[string, RegExp]> = [
   ['lib/middleware/quiet-window.js', /akaneQuietWindow/],
   ['lib/middleware/quiet-window.js', /AKANE_WINDOW_ADDRESSED/],
   ['lib/middleware/arrival-probe.js', /akaneArrivalProbe/],
+  ['lib/middleware/sticker-probe.js', /createStickerProbe/],
+  ['lib/middleware/sticker-probe.js', /sticker-turns/],
+  ['lib/transport/outbound.js', /createStickerProbe/],
   ['lib/features/arrival-stats.js', /summarizeArrivals/],
+  ['lib/features/sticker-turn-stats.js', /summarizeStickerTurns/],
   ['lib/features/media-ledger.js', /getMediaLedger/],
   ['lib/gateway/middleware-setup.js', /akaneHistoryBuffer/],
   ['lib/gateway/middleware-setup.js', /mergeFragments/],
@@ -286,9 +309,10 @@ const BUILT: Array<[string, RegExp]> = [
   ['lib/client.js', /wakeWords/],
   ['lib/client.js', /quietWindowMaxFragments/],
   ['lib/client.js', /FEATURE_TABS/],
+  ['lib/client.js', /STICKER_LEVEL_OPTIONS/],
   ['lib/setup/bind-routes.js', /quietWindowComboError/],
   ['lib/setup/bind-routes.js', /personaEnabled/],
-  ['lib/setup/bind-routes.js', /stickersEnabled/],
+  ['lib/setup/bind-routes.js', /stickerLevel/],
 ];
 
 /** 身份残留：漏一处就与原版同名顶掉，历史上真坏过（回滚文件后缀那次） */

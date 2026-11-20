@@ -24,6 +24,7 @@ import type { ChatScope, Logger } from '../types.ts';
 import { setupMiddlewares } from './middleware-setup.ts';
 import { startMediaCleanup } from '../media/media-cleaner.ts';
 import { startProbeCleanup } from '../middleware/arrival-probe.ts';
+import { startStickerProbeCleanup } from '../middleware/sticker-probe.ts';
 import { ensureVisionInputModal, registerDescribeImageTool } from '../media/vision-tool.ts';
 import { registerSendFileTool, type MediaSenderLike } from '../media/send-file-tool.ts';
 import { startMemoryFeature } from '../memory/index.ts';
@@ -185,6 +186,10 @@ export async function bootstrapGateway(
   if (config.arrivalProbe.enabled) {
     startProbeCleanup(ctx, config.arrivalProbe.keepDays, logger);
   }
+
+  // ── 每轮配图观测的过期清理（写入器由 outbound 轮末自己持有，关闭态不建目录）──
+  //    自检放在函数内部：enabled 不为 true 直接 return，所以这里不加 if。
+  startStickerProbeCleanup(ctx, config, logger);
 
   // ── 视觉工具注册（akane_describe_image，复用 dsh llm + attachments） ──
   ensureVisionInputModal(config.vision, logger);

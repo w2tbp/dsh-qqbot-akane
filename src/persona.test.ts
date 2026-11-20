@@ -1,8 +1,17 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { buildPersona, readLessons, resetPersonaCache, resolvePersonaPath } from './persona.ts';
+import {
+  applyStickerLevel,
+  buildPersona,
+  parseStickerLevels,
+  readLessons,
+  readStickerLevels,
+  resetPersonaCache,
+  resolvePersonaPath,
+  STICKER_ANCHOR,
+} from './persona.ts';
 import {
   PERSONA_PREFIX_SECTION,
   PERSONA_SECTION_NAME,
@@ -217,30 +226,121 @@ describe('personaEnabled 总开关', () => {
   });
 });
 
-describe('stickersEnabled 软关', () => {
-  it('stickersEnabled === false 时剥掉含 akane-sticker 的行', () => {
-    const persona = join(root, 'sticker-test.md');
-    writeFileSync(persona, '第一行\n你可以用 akane-sticker 发梗图\n第三行', 'utf8');
-    const cfg = config({ personaGroupFile: persona, stickersEnabled: false });
-    const result = buildPersona('group', cfg);
-    expect(result).not.toContain('akane-sticker');
-    expect(result).toContain('第一行');
-    expect(result).toContain('第三行');
+describe('stickerLevel 四档改写', () => {
+  const blocks = {
+    quiet: '- 只在点名要图时才配（akane-sticker）',
+    active: '- 默认配一张（akane-sticker）\n- 想到图或连着两轮纯文字，先读一遍索引再开口',
+  };
+
+  it('applyStickerLevel：normal 恒等，连锚点都不碰', () => {
+    const text = '第一行\n你可以用 akane-sticker 发梗图\n第三行';
+    expect(applyStickerLevel(text, 'normal', blocks)).toBe(text);
   });
 
-  it('stickersEnabled === true 时保留所有行', () => {
-    const persona = join(root, 'sticker-test2.md');
-    writeFileSync(persona, '第一行\n你可以用 akane-sticker 发梗图\n第三行', 'utf8');
-    const cfg = config({ personaGroupFile: persona, stickersEnabled: true });
-    const result = buildPersona('group', cfg);
-    expect(result).toContain('akane-sticker');
+  it('applyStickerLevel：off 删掉锚点行', () => {
+    const text = '第一行\n你可以用 akane-sticker 发梗图\n第三行';
+    expect(applyStickerLevel(text, 'off', blocks)).toBe('第一行\n第三行');
   });
 
-  it('stickersEnabled 未定义时默认保留（向后兼容）', () => {
-    const persona = join(root, 'sticker-test3.md');
+  it('applyStickerLevel：quiet 原地替换锚点行，前后行与顺序不动', () => {
+    const text = '第一行\n你可以用 akane-sticker 发梗图\n第三行';
+    expect(applyStickerLevel(text, 'quiet', blocks)).toBe(`第一行\n${blocks.quiet}\n第三行`);
+  });
+
+  it('applyStickerLevel：active 一条锚点行换成两条，不重复', () => {
+    const text = '第一行\n你可以用 akane-sticker 发梗图\n第三行';
+    const out = applyStickerLevel(text, 'active', blocks);
+    expect(out).toBe(`第一行\n${blocks.active}\n第三行`);
+    expect(out.match(/akane-sticker/g)).toHaveLength(1);
+  });
+
+  it('applyStickerLevel：锚点行不存在 ⇒ 恒等，绝不凭空造一句人格', () => {
+    const text = '第一行\n第二行';
+    expect(applyStickerLevel(text, 'active', blocks)).toBe(text);
+    expect(applyStickerLevel(text, 'quiet', blocks)).toBe(text);
+    expect(applyStickerLevel(text, 'off', blocks)).toBe(text);
+  });
+
+  it('applyStickerLevel：该档没文案（sticker-levels.md 被写坏）⇒ 退化成恒等', () => {
+    const text = '你可以用 akane-sticker 发梗图';
+    expect(applyStickerLevel(text, 'quiet', {})).toBe(text);
+    expect(applyStickerLevel(text, 'active', { quiet: '别的档' })).toBe(text);
+    // off 不需要文案，照旧删行
+    expect(applyStickerLevel(text, 'off', {})).toBe('');
+  });
+
+  it('parseStickerLevels：只收四档名的小节，小节外的前言不进文案', () => {
+    const parsed = parseStickerLevels([
+      '前言里也提到 akane-sticker，不该被收进来',
+      '## quiet',
+      '- 克制句',
+      '## normal',
+      '- 写了也没用的句',
+      '## nonsense',
+      '- 非法档名',
+    ].join('\n'));
+    expect(parsed.quiet).toBe('- 克制句');
+    // normal 是恒等档，档位改写函数根本不读它；解析层允许它存在但没人用
+    expect(parsed.normal).toBe('- 写了也没用的句');
+    expect(Object.keys(parsed)).toEqual(['quiet', 'normal']);
+  });
+
+  it('真实 persona/akane-group.md 恰好一行含锚点 —— 谁改丢了 token，quiet/active 就静默失效', () => {
+    const group = readFileSync(new URL('../persona/akane-group.md', import.meta.url), 'utf8');
+    expect(group.split('\n').filter((line) => line.includes(STICKER_ANCHOR))).toHaveLength(1);
+  });
+
+  it('真实 persona/akane-direct.md 不含锚点 ⇒ 四档对私聊全是恒等（normal 零变化的前提）', () => {
+    const direct = readFileSync(new URL('../persona/akane-direct.md', import.meta.url), 'utf8');
+    expect(direct).not.toContain(STICKER_ANCHOR);
+  });
+
+  it('真实 sticker-levels.md 的 quiet / active 都写到了，且 active 是两条', () => {
+    const parsed = readStickerLevels();
+    expect(parsed.quiet).toBeTruthy();
+    expect(parsed.active).toBeTruthy();
+    expect((parsed.active as string).split('\n')).toHaveLength(2);
+  });
+
+  it('buildPersona：档位缺省 = normal = 与不传档位逐字节相同', () => {
+    const persona = join(root, 'level-default.md');
+    writeFileSync(persona, '第一行\n你可以用 akane-sticker 发梗图\n第三行', 'utf8');
+    const asUndefined = buildPersona('group', config({ personaGroupFile: persona }));
+    const asNormal = buildPersona('group', config({ personaGroupFile: persona, stickerLevel: 'normal' }));
+    expect(asUndefined).toBe('第一行\n你可以用 akane-sticker 发梗图\n第三行');
+    expect(asNormal).toBe(asUndefined);
+  });
+
+  it('buildPersona：active 用上了正本里的两档文案，原文那句不再出现', () => {
+    const persona = join(root, 'level-active.md');
+    writeFileSync(persona, '第一行\n你可以用 akane-sticker 发梗图\n第三行', 'utf8');
+    const out = buildPersona('group', config({ personaGroupFile: persona, stickerLevel: 'active' }));
+    expect(out).toContain('第一行');
+    expect(out).toContain('第三行');
+    expect(out).not.toContain('你可以用 akane-sticker 发梗图');
+    expect(out).toContain(readStickerLevels().active as string);
+  });
+
+  it('buildPersona：off 与早期布尔软关等价 —— 锚点行整行消失，其余原样', () => {
+    const persona = join(root, 'level-off.md');
+    writeFileSync(persona, '第一行\n你可以用 akane-sticker 发梗图\n第三行', 'utf8');
+    expect(buildPersona('group', config({ personaGroupFile: persona, stickerLevel: 'off' })))
+      .toBe('第一行\n第三行');
+  });
+
+  it('buildPersona：私聊四档全恒等（direct persona 没有锚点行）', () => {
+    const persona = join(root, 'level-c2c.md');
+    writeFileSync(persona, '私聊人格内容', 'utf8');
+    for (const level of ['off', 'quiet', 'normal', 'active'] as const) {
+      const cfg = config({ personaDirectFile: persona, personaGroupFile: persona, stickerLevel: level });
+      expect(buildPersona('c2c', cfg)).toBe('私聊人格内容');
+    }
+  });
+
+  it('buildPersona：personaEnabled === false 时档位不参与（总开关先返空）', () => {
+    const persona = join(root, 'level-disabled.md');
     writeFileSync(persona, '你可以用 akane-sticker 发梗图', 'utf8');
-    const cfg = config({ personaGroupFile: persona });
-    const result = buildPersona('group', cfg);
-    expect(result).toContain('akane-sticker');
+    const cfg = config({ personaGroupFile: persona, personaEnabled: false, stickerLevel: 'active' });
+    expect(buildPersona('group', cfg)).toBe('');
   });
 });

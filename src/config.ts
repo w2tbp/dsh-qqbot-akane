@@ -52,6 +52,26 @@ export interface ArrivalProbeConfig {
   keepDays: number;
 }
 
+/**
+ * 每轮配图观测配置 —— 回答「调了档位到底变没变」，不参与任何判定。
+ * 一条记录只有毫秒、scope、图片计数与生效档位，**不含路径与正文**。
+ */
+export interface StickerProbeConfig {
+  /** 是否开启观测（默认关；关闭时不起定时器、目录都不创建） */
+  enabled: boolean;
+  /** 观测文件保留天数，0 = 永不过期 */
+  keepDays: number;
+}
+
+/**
+ * 梗图积极度档位。名字与 `persona/sticker-levels.md` 的 `## <档>` 小节一一对应，
+ * 其中 `normal` / `off` 不需要文案块（前者不动原文，后者删行）。
+ */
+export type StickerLevel = 'off' | 'quiet' | 'normal' | 'active';
+
+/** 四档的合法值（Schema、服务端校验、设置页选择条共用同一份，别各写一遍） */
+export const STICKER_LEVELS = ['off', 'quiet', 'normal', 'active'] as const satisfies readonly StickerLevel[];
+
 /** 附件发送配置（akane_send_file 工具与 present 交付物投递共用） */
 export interface SendFileConfig {
   /** 是否启用路径白名单（默认 true，仅允许 media + cwd + extraRoots；关闭则任意路径） */
@@ -118,10 +138,11 @@ export interface ImQQBotConfig {
    */
   personaEnabled: boolean;
   /**
-   * 梗图功能开关（**软关**）。`false` 时只剥掉 persona 里那句「手里有梗图库（akane-sticker）」
-   * 的提示行；图库文件与 skill 不动，她仍可能主动调用 `akane-sticker`。默认 `true`。
+   * 梗图积极度四档（取代早期布尔软关）。作用面是**群 persona 里那句含 `akane-sticker`
+   * 的常驻提示行**，档位语义见 `applyStickerLevel`。默认 `normal` = 该行原样保留 = 现网零变化。
+   * 私聊 persona 今天没有这行，四档对私聊一律不动。
    */
-  stickersEnabled: boolean;
+  stickerLevel: StickerLevel;
   /** 单条消息最大长度（QQ 限制约 5000 字符） */
   textChunkLimit: number;
   /** 是否启用流式输出（群聊始终不启用） */
@@ -148,6 +169,8 @@ export interface ImQQBotConfig {
   quietWindowMaxFragments: number;
   /** 到达间隔插桩（给 quietWindowMs 定默认值用，不参与任何判定） */
   arrivalProbe: ArrivalProbeConfig;
+  /** 每轮配图观测（给 stickerLevel 定档用，不参与任何判定） */
+  stickerProbe: StickerProbeConfig;
   /** 群历史缓冲条数 */
   historyLimit: number;
   /** 隐式唤醒强词表（空 = 关闭隐式唤醒，行为与不配一致） */
@@ -208,7 +231,7 @@ export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
   personaDirectFile: Schema.string().default('').description('私聊人格文件路径'),
   personaLessonsDir: Schema.string().default('').description('课程记忆目录（*.md 按文件名排序拼接）'),
   personaEnabled: Schema.boolean().default(true).description('人格注入总开关：关掉时 persona 文件、lessons、legacy prompt 全都不进 system prompt'),
-  stickersEnabled: Schema.boolean().default(true).description('梗图功能开关（软关）：关掉时只剥 persona 里那句梗图库提示；图库与 skill 不动'),
+  stickerLevel: Schema.union([...STICKER_LEVELS]).default('normal').description('梗图积极度四档：off 删掉 persona 梗图行 / quiet 换低频措辞 / normal 保留原文（默认，现网零变化）/ active 换高频措辞并追加「先翻索引」那条'),
   textChunkLimit: Schema.number().default(4500).description('单条消息最大字符数'),
   streaming: Schema.boolean().default(true).description('是否启用流式输出（群聊始终不启用）'),
   sessionIdleTimeout: Schema.number().default(30 * 60 * 1000).description('会话闲置超时(ms)'),
@@ -223,6 +246,10 @@ export const ConfigSchema: Schema<ImQQBotConfig> = Schema.object({
     enabled: Schema.boolean().default(false).description('到达间隔插桩：只记 messageId+接收毫秒+桶散列，用来定 quietWindowMs 默认值；关闭时零写入'),
     keepDays: Schema.number().default(30).description('插桩文件保留天数，0=永不过期'),
   }).default({ enabled: false, keepDays: 30 }).description('到达间隔插桩（观测用）'),
+  stickerProbe: Schema.object({
+    enabled: Schema.boolean().default(false).description('每轮配图观测：只记接收毫秒+scope+图片计数+生效档位，不含路径与正文；关闭时零写入'),
+    keepDays: Schema.number().default(30).description('观测文件保留天数，0=永不过期'),
+  }).default({ enabled: false, keepDays: 30 }).description('每轮配图观测（给 stickerLevel 定档用，不参与任何判定）'),
   historyLimit: Schema.number().default(10).description('群历史缓冲条数'),
   wakeWords: Schema.array(Schema.string()).default([]).description('群聊隐式唤醒词（强词：独立成词即触发，命中即回）'),
   wakeWordsWeak: Schema.array(Schema.string()).default([]).description('群聊隐式唤醒词（弱词：需句首/称呼标点/后接疑问等呼格信号）'),

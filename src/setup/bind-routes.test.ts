@@ -537,6 +537,41 @@ describe('bind-routes', () => {
     expect(writes[0]).toEqual({ quietWindowMs: 8000 });
   });
 
+  it('POST config：梗图积极度四档都收，落库是字符串档位而不是布尔', async () => {
+    for (const level of ['off', 'quiet', 'normal', 'active']) {
+      const writes: Array<Record<string, unknown>> = [];
+      const { routes } = createHarness({ onUpdateConfig: (c) => { writes.push(c); return true; } });
+      const res = fakeRes();
+      await invoke(
+        routes.get(BIND_CONFIG_PATH),
+        fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' }, `{"stickerLevel":"${level}"}`),
+        res,
+      );
+      expect(res.statusCode, level).toBe(200);
+      expect(writes[0]).toEqual({ stickerLevel: level });
+    }
+  });
+
+  it('POST config：档位写错（含旧的布尔键与数字）当场被拒 —— 界面填不出 persona.ts 不认的值', async () => {
+    const cases = [
+      '{"stickerLevel":"max"}',
+      '{"stickerLevel":""}',
+      '{"stickerLevel":2}',
+      '{"stickerLevel":true}',
+      '{"stickersEnabled":false}',
+    ];
+    for (const body of cases) {
+      const { routes } = createHarness({ onUpdateConfig: () => true });
+      const res = fakeRes();
+      await invoke(
+        routes.get(BIND_CONFIG_PATH),
+        fakeReq('POST', { host: '127.0.0.1:3080', 'content-type': 'application/json' }, body),
+        res,
+      );
+      expect(res.statusCode, body).toBe(400);
+    }
+  });
+
   it('POST config：窗口开着而硬顶为 0 的组合被拦（该组合挂载即抛），且不落盘', async () => {
     const writes: Array<Record<string, unknown>> = [];
     const run = async (body: string, current: Record<string, unknown>): Promise<{ status: number; body: unknown }> => {

@@ -8,6 +8,7 @@ import type { SessionManager, SessionRecord } from '../session/index.ts';
 import type { ImQQBotConfig } from '../config.ts';
 import type { Logger } from '../types.ts';
 import { chunkMarkdownText } from './chunker.ts';
+import { createStickerProbe, type StickerProbe } from '../middleware/sticker-probe.ts';
 import { OutboundBuffer, type QQBotSender } from './outbound-buffer.ts';
 import { formatToolResult, type ToolsRegistryLike, type ToolResultData } from './tool-presenter.ts';
 import type { DeliverablesDelivererLike } from './deliverables.ts';
@@ -79,6 +80,8 @@ class OutboundRouter {
   private readonly logger: Logger;
   private readonly toolsRegistry: ToolsRegistryLike | undefined;
   private readonly deliverer: DeliverablesDelivererLike | undefined;
+  /** 每轮配图观测；关闭态为 undefined ⇒ 一个字都不写 */
+  private readonly stickerProbe: StickerProbe | undefined;
 
   public constructor(
     manager: SessionManager,
@@ -94,6 +97,7 @@ class OutboundRouter {
     this.logger = logger;
     this.toolsRegistry = toolsRegistry;
     this.deliverer = deliverer;
+    this.stickerProbe = createStickerProbe(config, logger);
   }
 
   /** 事件分发入口 */
@@ -263,6 +267,9 @@ class OutboundRouter {
     const files = this.presentedFiles.get(sessionId) ?? [];
     this.presentedFiles.delete(sessionId);
     this.presentedCalls.delete(sessionId);
+    // 观测记的是 present **声明**数（实发在 deliverables 里，失败会渲染成 📎），
+    // 且不含 akane_send_file —— 那条是用户点名要图，本来就不算主动配图。
+    this.stickerProbe?.writeTurn(record.replyTarget.scope, files);
     // assistant/message 已在轮内先行发送的文本可能仍在途：与 turn/end 自身的 flush 一起等待
     const pending = this.pendingText.get(sessionId) ?? Promise.resolve();
     this.pendingText.delete(sessionId);

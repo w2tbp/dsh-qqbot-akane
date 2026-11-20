@@ -46,21 +46,26 @@ export function dayName(ms: number): string {
 }
 
 /**
- * 单个根目录的写入器。
+ * 单个根目录的写入器（所有插桩通路共用：到达间隔、每轮配图……）。
  * 状态挂在实例上而不是模块级：热重载不重建模块，模块级状态会跨重载存活并串起两份配置。
  */
-export class ProbeSink {
+export class ProbeSink<R extends { t: number } = ProbeRecord> {
   private dirReady = false;
   private warned = false;
   private queue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly root: string, private readonly logger: Logger) {}
+  /** `label` 只进日志文案，用来区分是哪一路插桩在报警 */
+  constructor(
+    private readonly root: string,
+    private readonly logger: Logger,
+    private readonly label = 'arrival',
+  ) {}
 
   /**
    * 追加一条记录，fire-and-forget —— 观测不许拖慢消息链，
    * 也不许因为磁盘故障把她的回复带下水。串行排队保证一行一条，不出现交错。
    */
-  write(record: ProbeRecord): void {
+  write(record: R): void {
     const line = `${JSON.stringify(record)}\n`;
     this.queue = this.queue.then(async () => {
       if (!this.dirReady) {
@@ -71,7 +76,7 @@ export class ProbeSink {
     }).catch((err: unknown) => {
       if (!this.warned) {
         this.warned = true;
-        this.logger.warn(`im-qqbot-akane: arrival probe write failed: ${err instanceof Error ? err.message : String(err)}`);
+        this.logger.warn(`im-qqbot-akane: ${this.label} probe write failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     });
   }
@@ -105,6 +110,7 @@ export async function cleanupExpiredProbeFiles(
   keepDays: number,
   logger?: Logger,
   root: string = PROBE_ROOT,
+  label = 'arrival',
 ): Promise<number> {
   if (keepDays <= 0) return 0;
   let entries;
@@ -122,10 +128,10 @@ export async function cleanupExpiredProbeFiles(
       const info = await stat(path);
       if (info.mtimeMs > cutoff) return false;
       await rm(path, { force: true });
-      logger?.debug(`im-qqbot-akane: cleaned expired arrival file: ${name}`);
+      logger?.debug(`im-qqbot-akane: cleaned expired ${label} file: ${name}`);
       return true;
     } catch (err) {
-      logger?.warn(`im-qqbot-akane: arrival cleanup failed for ${name}: ${err instanceof Error ? err.message : String(err)}`);
+      logger?.warn(`im-qqbot-akane: ${label} cleanup failed for ${name}: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
   }));
@@ -133,15 +139,21 @@ export async function cleanupExpiredProbeFiles(
 }
 
 /** 启动插桩清理：挂载点与 startMediaCleanup 并列，插件卸载时自动 clearInterval */
-export function startProbeCleanup(ctx: Context, keepDays: number, logger: Logger): void {
+export function startProbeCleanup(
+  ctx: Context,
+  keepDays: number,
+  logger: Logger,
+  root: string = PROBE_ROOT,
+  label = 'arrival',
+): void {
   if (keepDays <= 0) return;
   (ctx as unknown as { effect(fn: () => (() => Promise<void>) | void, name?: string): void })
     .effect(() => {
       const timer = setInterval(() => {
-        void cleanupExpiredProbeFiles(keepDays, logger)
-          .then((n) => { if (n > 0) logger.info(`im-qqbot-akane: cleaned ${n} expired arrival files`); })
-          .catch((err: unknown) => logger.warn(`im-qqbot-akane: arrival cleanup failed: ${err instanceof Error ? err.message : String(err)}`));
+        void cleanupExpiredProbeFiles(keepDays, logger, root, label)
+          .then((n) => { if (n > 0) logger.info(`im-qqbot-akane: cleaned ${n} expired ${label} files`); })
+          .catch((err: unknown) => logger.warn(`im-qqbot-akane: ${label} cleanup failed: ${err instanceof Error ? err.message : String(err)}`));
       }, CLEANUP_INTERVAL_MS);
       return async () => { clearInterval(timer); };
-    }, 'im-qqbot-akane.arrival-cleanup');
+    }, `im-qqbot-akane.${label}-cleanup`);
 }

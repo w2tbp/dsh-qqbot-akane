@@ -60,7 +60,7 @@ type ConfigWire = {
   personaDirectFile?: string;
   personaLessonsDir?: string;
   personaEnabled?: boolean;
-  stickersEnabled?: boolean;
+  stickerLevel?: StickerLevelWire;
   memory?: MemoryWire;
 };
 
@@ -200,10 +200,16 @@ function Switch({ checked, label, onChange }: {
   }, createElement('span', { className: 'imqb2-switch-thumb' }));
 }
 
-/** 访问模式分段选择（官方 SegmentedControl 结构：CSS 变量定位滑动指示器） */
+/**
+ * 分段选择（官方 SegmentedControl 结构：CSS 变量定位滑动指示器）。
+ *
+ * `value` 用 string 而不是泛型：宿主带的 React 类型在 `createElement` 处推不出
+ * 泛型组件的实例化签名（试过的结果是 4 处 TS2769）。合法性由各选项数组自己的
+ * 标注守住（`MODE_OPTIONS` / `STICKER_LEVEL_OPTIONS` 都写死了枚举类型）。
+ */
 function Segmented({ value, options, onChange, label }: {
-  value: AccessMode; options: ReadonlyArray<{ value: AccessMode; label: string }>;
-  onChange: (next: AccessMode) => void; label: string;
+  value: string; options: ReadonlyArray<{ value: string; label: string }>;
+  onChange: (next: string) => void; label: string;
 }): ReactNode {
   const index = Math.max(0, options.findIndex((o) => o.value === value));
   const trackStyle = {
@@ -261,10 +267,10 @@ function AreaRow({ label, help, value, rows, onChange }: {
   );
 }
 
-/** 访问模式分段选择行 */
+/** 分段选择行（访问模式、梗图档位共用；value 用 string 的原因见 `Segmented`） */
 function SegmentedRow({ label, help, value, options, onChange }: {
-  label: string; help?: string; value: AccessMode;
-  options: ReadonlyArray<{ value: AccessMode; label: string }>; onChange: (next: AccessMode) => void;
+  label: string; help?: string; value: string;
+  options: ReadonlyArray<{ value: string; label: string }>; onChange: (next: string) => void;
 }): ReactNode {
   return createElement('div', { className: 'imqb2-field' },
     createElement('div', { className: 'imqb2-head' },
@@ -292,6 +298,27 @@ const MODE_OPTIONS: ReadonlyArray<{ value: AccessMode; label: string }> = [
   { value: 'allowlist', label: '白名单' },
   { value: 'disabled', label: '禁用' },
 ];
+
+/**
+ * 梗图积极度四档。合法值正本在 `src/config.ts` 的 `STICKER_LEVELS`（服务端校验用它），
+ * 这里另写一份字面量是因为客户端包不许依赖 schemastery —— 两边由 fork-guard 钉住不许分叉。
+ */
+type StickerLevelWire = 'off' | 'quiet' | 'normal' | 'active';
+
+const STICKER_LEVEL_OPTIONS: ReadonlyArray<{ value: StickerLevelWire; label: string }> = [
+  { value: 'off', label: '不发' },
+  { value: 'quiet', label: '克制' },
+  { value: 'normal', label: '正常' },
+  { value: 'active', label: '积极' },
+];
+
+/** 每档到底改了什么（界面下方逐档说明，避免用户靠猜） */
+const STICKER_LEVEL_HELP = '这一档改写的是她 system prompt 里那句常驻的梗图提示（只作用于群聊 —— 私聊人格里没有这句话，'
+  + '所以四档对私聊都没效果）：「不发」删掉那句；「克制」换成只在被点名、或对方说的正好是某张图的字幕时才配；'
+  + '「正常」= persona 原文，也就是她现在的行为；'
+  + '「积极」除了换措辞还追加一条动作——想到图、或连着两轮只回了纯文字，就先读一遍索引再开口。'
+  + '四档都不动图库文件与 skill，也不设任何硬闸门：档位只改倾向，不保证发或不发。'
+  + '文案正本在 persona/sticker-levels.md，改完下一条消息生效。';
 
 /** 6 个功能 tab（设置页按语义归组，不再平铺在一个长表单里） */
 const FEATURE_TABS = [
@@ -567,7 +594,7 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
     createElement(SegmentedRow, {
       key: 'c2c-mode',
       label: '私聊', value: access.c2cMode, options: MODE_OPTIONS,
-      onChange: (v: AccessMode) => { patch('access', { ...access, c2cMode: v }); },
+      onChange: (v: string) => { patch('access', { ...access, c2cMode: v as AccessMode }); },
     }),
     access.c2cMode === 'allowlist'
       ? createElement(AreaRow, {
@@ -580,7 +607,7 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
     createElement(SegmentedRow, {
       key: 'group-mode',
       label: '群聊', value: access.groupMode, options: MODE_OPTIONS,
-      onChange: (v: AccessMode) => { patch('access', { ...access, groupMode: v }); },
+      onChange: (v: string) => { patch('access', { ...access, groupMode: v as AccessMode }); },
     }),
     access.groupMode === 'allowlist'
       ? createElement(AreaRow, {
@@ -708,12 +735,18 @@ export function ConfigPanel(props?: { bindPhase?: string }): ReactNode {
   ];
 
   const renderStickersPanel = (): ReactNode[] => [
-    createElement(SwitchRow, {
-      key: 'stickers-enabled',
-      label: '梗图功能', checked: form.stickersEnabled ?? true,
-      help: '关闭后只剥 persona 里那句梗图库提示；图库文件与 skill 不动，她仍可能主动调用',
-      onChange: (v: boolean) => { patch('stickersEnabled', v); },
+    createElement(SegmentedRow, {
+      key: 'sticker-level',
+      label: '梗图积极度',
+      value: form.stickerLevel ?? 'normal',
+      options: STICKER_LEVEL_OPTIONS,
+      help: STICKER_LEVEL_HELP,
+      onChange: (v: string) => { patch('stickerLevel', v as StickerLevelWire); },
     }),
+    createElement('p', { className: 'imqb2-help', key: 'sticker-readonly-help' },
+      '想知道档位到底有没有用：在 YAML 里把 stickerProbe.enabled 写 true，她每次回话后会在数据目录落一条计数'
+      + '（只有时间、群/私聊、图片张数、梗图张数、当时生效的档位，不含路径与聊天内容）。'
+      + '攒几天再用 scripts/sticker-turn-report.mjs 出按档位分段的主动配图占比。本页不管这个开关。'),
   ];
 
   const renderPersonaPanel = (): ReactNode[] => [
