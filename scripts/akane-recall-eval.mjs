@@ -223,18 +223,37 @@ async function loadReadOnly() {
   return { meta, rows: parsed.slice(0, aligned), vectors, aligned, total: parsed.length, vectorBytes };
 }
 
-/** 别名按 peer 原值排序分配（A/B/C…），原值只进 state/peers.json，永不出 stdout */
+/**
+ * 别名 ↔ peer 原值。原值只进 `state/peers.json`（0600），永不出 stdout。
+ *
+ * **已分配过的别名不许改，新 peer 只能追加领空位。** 题库是按别名写的（`{"peer":"A"}`），
+ * 而别名若按「本轮榜上有哪些 peer、排第几」重发，一个新群进来就把 A/B/C 整体挪位 ——
+ * 用户标好的那 20 题会静默指向别的群，位次表照样出数、只是全错。这与序号是同一套
+ * 「只增不复用」规矩。清库重建后 peer 原值不变，所以别名照样有效。
+ */
 function peerAliases(rows) {
-  const distinct = [...new Set(rows.map((row) => row.peer))].sort();
   const map = {};
   const aliasOf = {};
-  distinct.forEach((peer, index) => {
-    const alias = index < 26 ? String.fromCharCode(65 + index) : `P${index}`;
+  for (const [alias, peer] of Object.entries(readJson(PEER_FILE, null) ?? {})) {
+    if (typeof peer !== 'string' || typeof alias !== 'string') continue;
     map[alias] = peer;
     aliasOf[peer] = alias;
-  });
-  const next = JSON.stringify(map);
-  if (JSON.stringify(readJson(PEER_FILE, null)) !== next) writePrivate(PEER_FILE, next);
+  }
+  const fresh = [...new Set(rows.map((row) => row.peer))]
+    .filter((peer) => aliasOf[peer] === undefined)
+    .sort();
+  if (fresh.length > 0) {
+    for (const peer of fresh) {
+      let alias;
+      for (let i = 0; ; i += 1) {
+        const candidate = i < 26 ? String.fromCharCode(65 + i) : `P${i}`;
+        if (map[candidate] === undefined) { alias = candidate; break; }
+      }
+      map[alias] = peer;
+      aliasOf[peer] = alias;
+    }
+    writePrivate(PEER_FILE, JSON.stringify(map));
+  }
   return { map, aliasOf };
 }
 
@@ -445,14 +464,18 @@ async function cmdInspect() {
   // 这里按**原值直接相等**计数，不走 samePeer：后者对 unknown 恒 false（fail-closed 的正确行为），
   // 拿它分组会把那批整块吞掉、总数对不上还看不出来。取数路径（check/run/questions）照旧走 samePeer。
   let listed = 0;
+  let absent = 0;
   for (const [alias, peer] of Object.entries(ctx.peerMap)) {
     const scoped = ctx.rows.filter((row) => row.peer === peer);
+    // 别名表是累积的：某个 peer 的 chunk 全没了（清库重建、或它本就不在这份索引里）也要能说清楚
+    if (scoped.length === 0) { absent += 1; continue; }
     listed += scoped.length;
     const hers = scoped.filter((row) => row.role === 'akane').length;
     say(`  ${alias}  榜长=${String(scoped.length).padStart(5)}　她说的=${String(hers).padStart(5)}　对方说的=${String(scoped.length - hers).padStart(5)}`
       + (peer === UNKNOWN_PEER ? '　← unknown：写入侧已知缺口，读侧永不可召回（这些榜长召不回来，别当素材）' : ''));
   }
-  say(`  合计 ${listed} / 索引 ${ctx.rows.length} 条${listed === ctx.rows.length ? '（对得上）' : '　⚠ 对不上：分组口径有漏'}`);
+  say(`  合计 ${listed} / 索引 ${ctx.rows.length} 条${listed === ctx.rows.length ? '（对得上）' : '　⚠ 对不上：分组口径有漏'}`
+    + (absent > 0 ? `　另 ${absent} 个别名本轮榜上无条目（别名表是累积的，重建或转录清掉都会留空位）` : ''));
   const lengths = ctx.rows.map((row) => row.textLen).sort((a, b) => a - b);
   const at = (fraction) => lengths[Math.min(lengths.length - 1, Math.floor(lengths.length * fraction))] ?? 0;
   say('');
@@ -527,6 +550,7 @@ async function cmdCheck() {
   const questions = readQuestions();
   const ctx = await context();
   let problems = 0;
+  warnIfStateLooksRebuilt(ctx);
   say(`题库 ${questions.length} 条：`);
   for (const question of questions) {
     const peer = ctx.peerMap[question.peer];
@@ -573,6 +597,7 @@ async function cmdRun() {
     if (!health.ok) fail(`embedding 服务不可达（code=${health.code}）：查询向量算不出来，整张表作废。起停归用户。`);
   }
   const ctx = await context();
+  warnIfStateLooksRebuilt(ctx);
   const started = Date.now();
   const results = [];
   const dropped = [];
@@ -797,9 +822,22 @@ async function context() {
   ensureDirs();
   const index = await loadReadOnly();
   const ordinals = syncOrdinals(index.rows);
+  // 序号表和别名表都是**累积状态**：前者掉了位次会重排（有 renumbered 阶梯兜着），
+  // 后者掉了则没有可靠办法发现 —— 题库只写别名，别名按本轮榜上的 peer 排序重发就可能挪位，
+  // 那会让用户标好的题静默指向另一个群。所以只要「别名表是本轮新建的、而序号表不是空的」
+  // 就当场喊一句，宁可由人核对，也不许出一张错位还看着正常的表。
+  const peerFilePreexisted = existsSync(PEER_FILE);
   const { map, aliasOf } = peerAliases(index.rows);
   const rowsByKey = new Map(index.rows.map((row) => [row.key, row]));
-  return { ...index, ordinals, peerMap: map, aliasOf, rowsByKey };
+  return { ...index, ordinals, peerMap: map, aliasOf, rowsByKey, peerFilePreexisted };
+}
+
+/** 状态目录被清过时的当场提示（`check` 与 `run` 都先过一遍） */
+function warnIfStateLooksRebuilt(ctx) {
+  if (ctx.peerFilePreexisted || ctx.ordinals.count === 0) return;
+  say(`⚠ 别名表 ${short(PEER_FILE)} 本轮之前不存在，而序号表有 ${ctx.ordinals.count} 条 ——`
+    + ' 若题库是以前标好的，别名可能已不等于当时那个 peer（A/B/C 是按到达顺序累积分配的）。'
+    + '先人工核对题库的 peer 列，再信这张表。');
 }
 
 const DISPATCH = { inspect: cmdInspect, questions: cmdQuestions, check: cmdCheck, run: cmdRun, leakgate: cmdLeakGate };
