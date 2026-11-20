@@ -17,6 +17,8 @@ import {
   DEFAULT_FRAGMENT_LIMIT,
   MAX_FRAGMENT_CHARS,
   MAX_RETURN_CHARS,
+  RRF_K,
+  VECTOR_POOL_FACTOR,
   VECTOR_SIM_FLOOR,
 } from './retrieval.ts';
 
@@ -167,5 +169,94 @@ describe('selectCandidates', () => {
     expect(DEFAULT_FRAGMENT_LIMIT).toBe(6);
     expect(MAX_RETURN_CHARS).toBe(3000);
     expect(MAX_FRAGMENT_CHARS).toBe(600);
+  });
+});
+
+/**
+ * 扫参用的可选旋钮（§6 第 1 条：改这些数必须附同一批查询的改前/改后位次，
+ * 位次由 `scripts/akane-recall-eval.mjs` 离线采集）。
+ *
+ * 这一组断言分两类：一类钉「不传参时与加旋钮之前逐位一致」（现网默认路径），
+ * 一类钉「这几个数本身是临时值」—— 想改就得同时改这条断言，那就是 §6 的机械抓手。
+ */
+describe('扫参旋钮（floor / 池宽 / rrfK / 片段数）', () => {
+  /** 只在第 0 维放一个值，cosine() 是点积，于是分数就等于这个值 */
+  const dim0 = (value: number, dims = 512): Float32Array => {
+    const v = new Float32Array(dims);
+    v[0] = value;
+    return v;
+  };
+
+  it('floor 与 limit 都是对同一个有序序列的纯筛切（离线榜缓存能复用的前提）', () => {
+    const rows = [row('s:1-1', '甲'), row('s:2-2', '乙'), row('s:3-3', '丙'), row('s:4-4', '丁'), row('s:5-5', '戊')];
+    const vectors = [dim0(0.9), dim0(0.5), dim0(0.5), dim0(0.3), dim0(0.1)];
+    const query = dim0(1);
+    const full = vectorRanked(rows, vectors, query, rows.length, -Infinity);
+    expect(full.map((item) => item.key)).toEqual(['s:1-1', 's:2-2', 's:3-3', 's:4-4', 's:5-5']);
+    // 同分按 key 升序：s:2-2 与 s:3-3 都是 0.5，这一条把 tie-break 也钉住了
+    expect(vectorRanked(rows, vectors, query, 2, -Infinity)).toEqual(full.slice(0, 2));
+    expect(vectorRanked(rows, vectors, query, 99, 0.4)).toEqual(full.filter((item) => item.score >= 0.4));
+    // 现网那一对默认值（floor=0.45、池宽=limit*3）必须也等于对完整榜做同样的筛切
+    const limit = 6;
+    expect(vectorRanked(rows, vectors, query, limit * VECTOR_POOL_FACTOR)).toEqual(
+      full.filter((item) => item.score >= VECTOR_SIM_FLOOR).slice(0, limit * VECTOR_POOL_FACTOR),
+    );
+  });
+
+  it('不传 k 时等于 RRF_K；传 k 才走传入值', () => {
+    const lists = [{ source: 'literal' as const, keys: ['a', 'b'] }];
+    expect(fuseRrf(lists)).toEqual(fuseRrf(lists, RRF_K));
+    expect(fuseRrf(lists, 0)!.get('a')).toBeCloseTo(1, 12);
+    expect(fuseRrf(lists, 0)!.get('b')).toBeCloseTo(1 / 2, 12);
+  });
+
+  it('k 只改融合名次、不改单档内部名次 —— 这条就是「改 k 必须带前后对比」的存在性证明', () => {
+    const single = [{ source: 'literal' as const, keys: ['a', 'b', 'c'] }];
+    for (const k of [0, 1, 60, 1000]) {
+      expect([...fuseRrf(single, k).keys()]).toEqual(['a', 'b', 'c']);
+    }
+    // S 只在一档排第 1，D 在两档都排第 3：k 小则 S 赢，k 大则 D 赢
+    const lists = [
+      { source: 'literal' as const, keys: ['S', 'x', 'D'] },
+      { source: 'vector' as const, keys: ['p', 'q', 'D'] },
+    ];
+    expect(fuseRrf(lists, 0)!.get('S')!).toBeGreaterThan(fuseRrf(lists, 0)!.get('D')!);
+    expect(fuseRrf(lists, RRF_K)!.get('D')!).toBeGreaterThan(fuseRrf(lists, RRF_K)!.get('S')!);
+  });
+
+  it('不传 opts 时 selectCandidates 的融合分与加旋钮之前逐位一致', () => {
+    const rows = [row('s:1-1', '甲'), row('s:2-2', '乙')];
+    const lists = buildLists({
+      literalKeys: ['s:1-1', 's:2-2'],
+      vectorKeys: [{ key: 's:1-1', score: 0.7 }, { key: 's:2-2', score: 0.6 }],
+    });
+    const out = selectCandidates(rows, lists, 6);
+    expect(out.map((candidate) => candidate.key)).toEqual(['s:1-1', 's:2-2']);
+    expect(out[0]!.fused).toBeCloseTo(2 / 61, 15);
+    expect(out[1]!.fused).toBeCloseTo(2 / 62, 15);
+    expect(selectCandidates(rows, lists, 6, {})).toEqual(out);
+    expect(out[0]!.fused).toBe(fuseRrf(lists)!.get('s:1-1'));
+  });
+
+  it('透传 rrfK 会改 selectCandidates 的输出顺序（评测口能扫到 k 的证据）', () => {
+    // s:1-1 只在字面档排第 1；s:3-3 在两档都排第 3。k 小 → 单档榜首赢，k 大 → 双档在场赢。
+    const rows = ['s:1-1', 's:2-2', 's:3-3', 's:4-4', 's:5-5'].map((key) => row(key, '文'));
+    const lists = buildLists({
+      literalKeys: ['s:1-1', 's:2-2', 's:3-3'],
+      vectorKeys: [{ key: 's:4-4', score: 0.9 }, { key: 's:5-5', score: 0.8 }, { key: 's:3-3', score: 0.7 }],
+    });
+    expect(selectCandidates(rows, lists, 1, { rrfK: 0 })[0]!.key).toBe('s:1-1');
+    expect(selectCandidates(rows, lists, 1, { rrfK: RRF_K })[0]!.key).toBe('s:3-3');
+    expect(selectCandidates(rows, lists, 1)[0]!.key).toBe('s:3-3');
+  });
+
+  it('旋钮的默认形状与元数守卫（写成裸可选参会让上面那条隐私断言当场红）', () => {
+    expect(fuseRrf.length).toBe(1);
+    expect(selectCandidates.length).toBe(3);
+  });
+
+  it('RRF k 与池宽倍数同为临时值，改数必须同时改这条', () => {
+    expect(RRF_K).toBe(60);
+    expect(VECTOR_POOL_FACTOR).toBe(3);
   });
 });

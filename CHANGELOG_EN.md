@@ -8,7 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-(Empty.)
+### Added
+
+- **Offline recall harness `scripts/akane-recall-eval.mjs`** (the prerequisite for P2 tuning; **nothing about her live behaviour changed**). It exists to make one rule collectable: any threshold change must come with before/after hit ranks. That data is structurally unavailable online - the payload she returns only contains candidates that **already passed** the similarity floor, so everything below it is invisible, and the below-floor band is exactly what decides which way to move the floor. The harness reads the on-disk index and computes the full board. Four subcommands: `inspect` (index size and per-peer board lengths, counts and aliases only), `questions` (short peer utterances pulled off the board as question candidates for labeling), `check` (question-bank health: does an ordinal still resolve, has the quoted text drifted, do the query tokens tokenize at all), `run` (one embedding per query swept across parameter arms, per-query rank table plus a markdown report). It is **read-only by design**: it deliberately never calls the production `loadIndex`, which wipes the whole index directory when it deems the files dirty while the background sync is appending to them.
+- **The four tuning knobs (similarity floor / vector pool width / RRF k / fragment limit) are now injectable**, defaulting to their current values, so behaviour is unchanged when nothing is injected. Besides the hand-replicated chain, `run` re-checks the returned payload against the **real `recallOnce`** with the same knobs injected, and errors out when the two disagree - the whole table rests on that comparison.
+
+### Notes
+
+- **The privacy boundary is a mechanism, not a practice**: the human and her exchange only **append-only ordinals**, and chat text never leaves `~/.akane-eval/` (0700/0600, outside the repo, never committed). Printing text requires a real TTY **and** an explicit `--i-am-the-user`, so that gate is physically unreachable from a non-interactive environment; `leakgate` self-checks both gates and the output scanner using neutral synthetic sentinels.
+- **It has not produced any real rank data yet**: those ≥20 real questions and the expected ordinals are still on the user's side (measured: only 12 chunks on the board are "said by the other party and ≤40 chars", so 20 cannot be extracted - the gap has to be written by hand). Tooling in place ≠ data in hand, and no threshold has moved.
+- Tests **711 passed / 48 files** (+10 this round: 7 retrieval, 3 recall tool), `pnpm build` clean.
 
 ## [0.5.5__0.3] - 2026-11-19
 

@@ -195,7 +195,7 @@ const POINTS: ForkPoint[] = [
   {
     file: 'src/memory/retrieval.ts',
     why: '字面档是逐词 AND，不是 FTS5：实测中文进 FTS 全 0 命中，改成 MATCH 就是「永远查不到」而不报错',
-    must: [/export function matchesLiteral/, /const RRF_K = 60;/],
+    must: [/export function matchesLiteral/, /export const RRF_K = 60;/],
     mustNot: [/CREATE TABLE/, /\bMATCH\b\s*\(/, /\.prepare\(/],
   },
   {
@@ -247,6 +247,7 @@ const BUILT: Array<[string, RegExp]> = [
   ['lib/memory/peer.js', /samePeer/],
   ['lib/memory/backfill.js', /startMemorySync/],
   ['lib/memory/retrieval.js', /matchesLiteral/],
+  ['lib/memory/retrieval.js', /export const RRF_K/],
   ['lib/memory/recall-tool.js', /akane_recall/],
   ['lib/session/session-manager.js', /insertPersonaSection/],
   ['lib/client.js', /wakeWords/],

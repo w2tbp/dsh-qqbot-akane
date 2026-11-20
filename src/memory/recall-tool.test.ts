@@ -12,9 +12,19 @@ import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Logger } from '../types.ts';
 import type { SessionManager } from '../session/index.ts';
-import { EMBED_DIMS, appendRows, emptyMeta, type ChunkRow } from './index-store.ts';
-import { UNKNOWN_PEER } from './peer.ts';
+import { EMBED_DIMS, appendRows, emptyMeta, readChunkRows, readVectors, type ChunkRow } from './index-store.ts';
+import { samePeer, UNKNOWN_PEER } from './peer.ts';
 import { RECALL_TOOL_NAME, recallOnce, registerRecallTool, type RecallDeps } from './recall-tool.ts';
+import {
+  buildLists,
+  matchesLiteral,
+  queryTokens,
+  selectCandidates,
+  vectorRanked,
+  RRF_K,
+  VECTOR_POOL_FACTOR,
+  VECTOR_SIM_FLOOR,
+} from './retrieval.ts';
 import type { TranscriptEvent } from './chunking.ts';
 
 const PEER_A = 'c2c:oA';
@@ -367,5 +377,103 @@ describe('工具注册形状', () => {
   it('tools 服务不可用 → 只 warn，不影响插件启动', () => {
     expect(() => registerRecallTool({ get: () => undefined } as unknown as Context, {} as SessionManager, { dir, embed, logger })).not.toThrow();
     expect(logs.some((line) => line.includes('未注册'))).toBe(true);
+  });
+});
+
+/**
+ * 离线评测口那条手工组合链必须与 `recallOnce` 那条**是同一条链**。
+ *
+ * `scripts/akane-recall-eval.mjs` 不走 recallOnce（它要的是被 floor 滤掉的榜下行，
+ * recallOnce 结构上看不见），而是自己串 `vectorRanked → buildLists → selectCandidates`。
+ * 那条串法一旦和现网分叉，采出来的「改前/改后位次」就全是假的 —— 这组断言是唯一的防线。
+ */
+describe('评测口的手工链 = recallOnce 的链（§6 第 1 条的地基）', () => {
+  /** 第 HOT 维放一个值：查询向量是 HOT 位为 1 的 one-hot，点积就等于这个值 */
+  function seedGraded(items: Array<{ key: string; text: string; time: number; score: number }>): Promise<void> {
+    const rows = items.map((item) => toRow(item));
+    const vectors = rows.map((_, i) => {
+      const v = new Array<number>(EMBED_DIMS).fill(0);
+      v[HOT] = items[i]!.score;
+      return v;
+    });
+    return appendRows(dir, rows, vectors, { ...emptyMeta(), chunks: rows.length });
+  }
+
+  const GRADED = [
+    { key: 's1:1-1', text: '猫粮太贵了', time: 1_700_000_000_000, score: 0.9 },
+    { key: 's1:2-2', text: '猫粮一包两百多', time: 1_700_000_001_000, score: 0.8 },
+    { key: 's1:3-3', text: '换个牌子的猫粮试试', time: 1_700_000_002_000, score: 0.7 },
+    { key: 's1:4-4', text: '今天加班到十点', time: 1_700_000_003_000, score: 0.6 },
+    { key: 's1:5-5', text: '猫粮买过了', time: 1_700_000_004_000, score: 0.5 },
+    { key: 's1:6-6', text: '龙猫好看吗', time: 1_700_000_005_000, score: 0.45 },
+  ];
+
+  /** 复刻 recallInner 的那三步（改这里必须同时改 recall-tool.ts，否则这条守卫就该红） */
+  async function manualChain(query: string, arm: { floor: number; poolFactor: number; rrfK: number; limit: number }) {
+    const rows = await readChunkRows(dir);
+    const scoped: ChunkRow[] = [];
+    const positions: number[] = [];
+    rows.forEach((row, index) => {
+      if (samePeer(row.peer, PEER_A)) {
+        scoped.push(row);
+        positions.push(index);
+      }
+    });
+    const vectors = await readVectors(dir, rows.length);
+    if (vectors === undefined) throw new Error('向量与文本没对齐');
+    const queryVector = Float32Array.from(oneHot(HOT));
+    const vectorKeys = vectorRanked(
+      scoped,
+      positions.map((index) => vectors[index]),
+      queryVector,
+      arm.limit * arm.poolFactor,
+      arm.floor,
+    );
+    const literalKeys = scoped
+      .filter((row) => matchesLiteral(row.text, queryTokens(query)))
+      .sort((a, b) => b.time - a.time)
+      .map((row) => row.key);
+    return selectCandidates(scoped, buildLists({ literalKeys, vectorKeys }), arm.limit, { rrfK: arm.rrfK });
+  }
+
+  /** 返回体里带相似度的那几条，顺序即候选顺序 */
+  function simsInBody(text: string): string[] {
+    return [...text.matchAll(/相似度 ([\d.]+)/g)].map((match) => match[1]!);
+  }
+
+  it('默认配置下两条链给出同一批片段、同一顺序', async () => {
+    await seedGraded(GRADED);
+    const arm = { floor: VECTOR_SIM_FLOOR, poolFactor: VECTOR_POOL_FACTOR, rrfK: RRF_K, limit: 6 };
+    const out = await recallOnce('猫粮', deps());
+    const manual = await manualChain('猫粮', arm);
+    expect(out.hits).toBe(manual.length);
+    expect(simsInBody(out.text)).toEqual(
+      manual.filter((c) => c.vectorScore !== undefined).map((c) => c.vectorScore!.toFixed(3)),
+    );
+  });
+
+  it('四个旋钮从 recallOnce 注入的值，与手工链同值传入时结果仍一致', async () => {
+    await seedGraded(GRADED);
+    for (const arm of [
+      { floor: 0.7, poolFactor: VECTOR_POOL_FACTOR, rrfK: RRF_K, limit: 6 },
+      { floor: 0.45, poolFactor: Infinity, rrfK: RRF_K, limit: 6 },
+      { floor: 0.45, poolFactor: VECTOR_POOL_FACTOR, rrfK: 0, limit: 6 },
+      { floor: 0.5, poolFactor: 1, rrfK: 20, limit: 3 },
+    ]) {
+      const out = await recallOnce('猫粮', deps({ limit: arm.limit, floor: arm.floor, poolFactor: arm.poolFactor, rrfK: arm.rrfK }));
+      const manual = await manualChain('猫粮', arm);
+      expect(out.hits, `臂 ${JSON.stringify(arm)}`).toBe(manual.length);
+      expect(simsInBody(out.text), `臂 ${JSON.stringify(arm)}`).toEqual(
+        manual.filter((c) => c.vectorScore !== undefined).map((c) => c.vectorScore!.toFixed(3)),
+      );
+    }
+  });
+
+  it('池宽倍数为 Infinity 就是不限（评测口靠这个值看榜下）', async () => {
+    await seedGraded(GRADED);
+    const rows = await readChunkRows(dir);
+    const vectors = await readVectors(dir, rows.length);
+    const ranked = vectorRanked(rows, vectors, Float32Array.from(oneHot(HOT)), 6 * Infinity, -Infinity);
+    expect(ranked).toHaveLength(rows.length);
   });
 });

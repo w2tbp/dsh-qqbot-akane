@@ -29,6 +29,9 @@ import {
   DEFAULT_FRAGMENT_LIMIT,
   MAX_FRAGMENT_CHARS,
   MAX_RETURN_CHARS,
+  RRF_K,
+  VECTOR_POOL_FACTOR,
+  VECTOR_SIM_FLOOR,
   type RecallCandidate,
 } from './retrieval.ts';
 import { containsHostLeak, readEventWindow, scrubForReturn } from './transcript-source.ts';
@@ -66,6 +69,13 @@ export interface RecallDeps {
   /** 回 T1 取窗口；不可用时返回 undefined → 退回索引里存的那份文本 */
   readWindow?: (sessionId: string, seq: number) => Promise<TranscriptEvent[] | undefined>;
   limit?: number;
+  /**
+   * 下面三项只为离线评测口扫参存在（`scripts/akane-recall-eval.mjs`，§6 第 1 条要的
+   * 「同一批查询改前/改后位次」）。现网调用点一个都不传，默认值就是现网那几个值。
+   */
+  floor?: number;
+  poolFactor?: number;
+  rrfK?: number;
 }
 
 export interface RecallResult {
@@ -132,12 +142,15 @@ async function recallInner(query: string, deps: RecallDeps): Promise<RecallResul
         scoped,
         positions.map((index) => all[index]),
         queryVector,
-        limit * 3,
+        limit * (deps.poolFactor ?? VECTOR_POOL_FACTOR),
+        deps.floor ?? VECTOR_SIM_FLOOR,
       );
     }
   }
 
-  const candidates = selectCandidates(scoped, buildLists({ literalKeys, vectorKeys }), limit);
+  const candidates = selectCandidates(scoped, buildLists({ literalKeys, vectorKeys }), limit, {
+    rrfK: deps.rrfK ?? RRF_K,
+  });
   if (candidates.length === 0) {
     return { text: degraded ? `${NO_MATCH}（这次只有字面档可用）` : NO_MATCH, hits: 0, degraded };
   }
